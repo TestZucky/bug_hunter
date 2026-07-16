@@ -1,11 +1,11 @@
 name: CI
 
-# Runs on every PR targeting main and on every push to main.
+# Runs on every push to main/develop and every PR targeting them.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
