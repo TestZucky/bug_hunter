@@ -32,7 +32,7 @@ async function solveCorrect() {
 describe("gameStore state machine (server-graded)", () => {
   beforeEach(() => {
     setGrader(localGrader(FIXTURE_CHALLENGES));
-    g().startSession(simple, publicQueue());
+    g().startSession(simple, "test-session", publicQueue());
   });
   afterAll(() => setGrader(null));
 

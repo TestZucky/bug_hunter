@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSound } from "@/hooks/useSound";
 import { useTimer } from "@/hooks/useTimer";
 import { TOKEN_COLORS, tokenize } from "@/lib/syntax";
-import { fetchSessionChallenges } from "@/services/gameApi";
+import { createSession } from "@/services/gameApi";
 import { useGameStore } from "@/stores/gameStore";
 import { useUserStore, type SessionOutcome } from "@/stores/userStore";
 import type { Language } from "@/types/challenge";
@@ -63,7 +63,7 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
     setOutcome(null);
     setLoadError(false);
     try {
-      const challenges = await fetchSessionChallenges(language, 40);
+      const { sessionId, challenges } = await createSession(language, 40);
       startSession(
         {
           mode: "classic",
@@ -75,6 +75,7 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
           roundSeconds: ROUND_SECONDS,
           allowRetry: false,
         },
+        sessionId,
         challenges,
       );
     } catch {

@@ -32,7 +32,8 @@ const SECURITY_BUGS = new Set([
 // ─── Grader injection (default = server API; tests inject a local grader) ────
 
 type Grader = (
-  challengeId: string,
+  sessionId: string,
+  roundIndex: number,
   kind: GradeKind,
   selectedId: string | null,
 ) => Promise<GradeResult>;
@@ -62,6 +63,7 @@ export interface RoundResultView {
 
 interface GameState {
   config: SessionConfig | null;
+  sessionId: string;
   challenges: PublicChallenge[];
   roundIndex: number;
   status: GameStatus;
@@ -97,7 +99,11 @@ interface GameState {
   totalRounds: () => number | null;
 
   // Actions
-  startSession: (config: SessionConfig, challenges: PublicChallenge[]) => void;
+  startSession: (
+    config: SessionConfig,
+    sessionId: string,
+    challenges: PublicChallenge[],
+  ) => void;
   selectLine: (lineId: string) => void;
   submitLine: () => Promise<void>;
   selectDiagnosis: (id: string) => void;
@@ -128,6 +134,7 @@ type Get = () => GameState;
 
 export const useGameStore = create<GameState>((set, get) => ({
   config: null,
+  sessionId: "",
   challenges: [],
   roundIndex: 0,
   status: "loading",
@@ -166,9 +173,10 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   totalRounds: () => get().config?.totalRounds ?? null,
 
-  startSession: (config, challenges) => {
+  startSession: (config, sessionId, challenges) => {
     set({
       config,
+      sessionId,
       challenges,
       roundIndex: 0,
       status: "loading",
@@ -196,7 +204,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (s.status !== "line_selected" || !s.pendingLineId || s.grading) return;
     const c = s.currentPublic();
     if (!c) return;
-    const res = await runGrade(set, get, c.id, "line", s.pendingLineId);
+    const res = await runGrade(set, get, "line", s.pendingLineId);
     if (!res) return; // network error — no penalty, let them retry
     if (get().status !== "line_selected") return; // timed out mid-grade
     if (res.correct) set({ status: "diagnosing", wrongLineId: null });
@@ -213,13 +221,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (s.status !== "diagnosing" || !s.pendingDiagnosisId || s.grading) return;
     const c = s.currentPublic();
     if (!c) return;
-    const res = await runGrade(
-      set,
-      get,
-      c.id,
-      "diagnosis",
-      s.pendingDiagnosisId,
-    );
+    const res = await runGrade(set, get, "diagnosis", s.pendingDiagnosisId);
     if (!res) return;
     if (get().status !== "diagnosing") return;
     if (res.correct) {
@@ -240,7 +242,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (s.status !== "fixing" || !s.pendingFixId || s.grading) return;
     const c = s.currentPublic();
     if (!c) return;
-    const res = await runGrade(set, get, c.id, "fix", s.pendingFixId);
+    const res = await runGrade(set, get, "fix", s.pendingFixId);
     if (!res) return;
     if (get().status !== "fixing") return;
     if (res.correct) resolveRound(set, get, "correct", res.reveal);
@@ -313,13 +315,13 @@ export const useGameStore = create<GameState>((set, get) => ({
 async function runGrade(
   set: Set,
   get: Get,
-  challengeId: string,
   kind: GradeKind,
   selectedId: string | null,
 ): Promise<GradeResult | null> {
+  const { sessionId, roundIndex } = get();
   set({ grading: true });
   try {
-    return await grader(challengeId, kind, selectedId);
+    return await grader(sessionId, roundIndex, kind, selectedId);
   } catch {
     return null;
   } finally {
@@ -357,7 +359,7 @@ async function forfeit(set: Set, get: Get) {
   if (s.status === "round_result") return;
   const c = s.currentPublic();
   if (!c) return;
-  const res = await runGrade(set, get, c.id, "forfeit", null);
+  const res = await runGrade(set, get, "forfeit", null);
   if (get().status === "round_result") return;
   resolveRound(set, get, "timeout", res?.reveal);
 }

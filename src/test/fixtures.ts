@@ -126,15 +126,20 @@ export const FIXTURE_CHALLENGES: Challenge[] = [
   },
 ];
 
-/** A local grader that mirrors the /api/challenges/grade route, for tests. */
+/**
+ * A local grader mirroring the server for state-machine tests. It maps the
+ * round index to a fixture (like the store's currentPublic) — it does not model
+ * the server's anti-cheat state (that's covered by the gameSession integration
+ * test).
+ */
 export function localGrader(pool: Challenge[]) {
   return async (
-    challengeId: string,
+    _sessionId: string,
+    roundIndex: number,
     kind: GradeKind,
     selectedId: string | null,
   ): Promise<GradeResult> => {
-    const c = pool.find((x) => x.id === challengeId);
-    if (!c) throw new Error(`unknown challenge ${challengeId}`);
+    const c = pool[roundIndex % pool.length];
     let correct = false;
     if (kind === "line") correct = isBugLineCorrect(c, selectedId);
     else if (kind === "diagnosis") correct = isDiagnosisCorrect(c, selectedId);

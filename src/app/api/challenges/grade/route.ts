@@ -1,31 +1,25 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { getById } from "@/db/challenges.repo";
-import {
-  buildReveal,
-  isBugLineCorrect,
-  isDiagnosisCorrect,
-  isFixCorrect,
-} from "@/services/challengeService";
+import { gradeInSession } from "@/services/gameSession";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { describeError, logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
-  challengeId: z.string().min(1).max(128),
+  sessionId: z.string().min(1).max(128),
+  roundIndex: z.number().int().min(0).max(100_000),
   kind: z.enum(["line", "diagnosis", "fix", "forfeit"]),
   selectedId: z.string().max(128).nullable(),
 });
 
 /**
- * POST /api/challenges/grade — grades a single submission on the server.
- * Answers never leave the server; only correctness (+ the round-end reveal,
- * which is the same explanation the game shows after every round) is returned.
+ * POST /api/challenges/grade — grades a submission WITHIN a session. The server
+ * enforces round/stage order, so a client gets exactly one answer per stage and
+ * cannot enumerate a challenge's options. Reveal is returned only on resolve.
  */
 export async function POST(req: NextRequest) {
-  // Throttle grading — this is the endpoint a scraper would hammer.
-  const limited = enforceRateLimit(req, "grade", 300, 60_000);
+  const limited = await enforceRateLimit(req, "grade", 300, 60_000);
   if (limited) return limited;
 
   let parsed;
@@ -39,24 +33,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { challengeId, kind, selectedId } = parsed.data;
-    const c = await getById(challengeId);
-    if (!c) {
-      return NextResponse.json({ error: "Unknown challenge" }, { status: 404 });
+    const { sessionId, roundIndex, kind, selectedId } = parsed.data;
+    const r = await gradeInSession(sessionId, roundIndex, kind, selectedId);
+    if (r.status === "notfound") {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
-
-    let correct = false;
-    if (kind === "line") correct = isBugLineCorrect(c, selectedId);
-    else if (kind === "diagnosis") correct = isDiagnosisCorrect(c, selectedId);
-    else if (kind === "fix") correct = isFixCorrect(c, selectedId);
-    // "forfeit" (timeout) → correct stays false.
-
-    // The round resolves on anything except a correct line (which just advances
-    // to the diagnosis stage). Reveal only on resolution.
-    const resolves = !(kind === "line" && correct);
-    const reveal = resolves ? buildReveal(c) : undefined;
-
-    return NextResponse.json({ correct, reveal });
+    if (r.status === "conflict") {
+      return NextResponse.json(
+        { error: "Round already submitted or out of order" },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ correct: r.correct, reveal: r.reveal });
   } catch (err) {
     logger.error("POST /api/challenges/grade failed", describeError(err));
     return NextResponse.json({ error: "Grading failed" }, { status: 500 });
