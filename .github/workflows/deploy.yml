@@ -1,0 +1,44 @@
+name: Deploy to Cloud Run
+
+# Auto-deploy production on every merge to main. `main` is branch-protected and
+# only accepts CI-passed PRs, so code that lands here has already gone through the
+# `verify` gate. Deploys keyless via Workload Identity Federation (no SA key in
+# GitHub) and does NOT set env vars, so the DATABASE_URL secret already on the
+# Cloud Run service is preserved — it never travels through the pipeline.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false # never interrupt an in-flight production deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to GCP (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: bug-hunter-app
+          workload_identity_provider: projects/891741363607/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-deployer@bug-hunter-app.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy bug-hunter \
+            --source . --region us-central1 --quiet \
+            --allow-unauthenticated \
+            --min-instances=0 --max-instances=1 --concurrency=80 \
+            --memory=512Mi --cpu=1 \
+            --network=default --subnet=default --vpc-egress=private-ranges-only
