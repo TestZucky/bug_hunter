@@ -11,7 +11,8 @@ describe.skipIf(!HAS_DB)("gameSession anti-cheat (DB integration)", () => {
     const { createSession, gradeInSession } = await import(
       "@/services/gameSession"
     );
-    await upsertMany(FIXTURE_CHALLENGES, "test");
+    // Published: a session can only be built from challenges players can see.
+    await upsertMany(FIXTURE_CHALLENGES, "test", "published");
 
     const { sessionId } = await createSession("mixed", 3);
 

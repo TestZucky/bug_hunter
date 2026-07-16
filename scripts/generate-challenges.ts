@@ -17,8 +17,8 @@
  *
  * Env:
  *   OPENAI_API_KEY         (required)
- *   OPENAI_MODEL           generation model     (default: gpt-4o)
- *   OPENAI_VERIFY_MODEL    verification model   (default: OPENAI_MODEL)
+ *   OPENAI_MODEL           generation model     (default: gpt-5.4-mini)
+ *   OPENAI_VERIFY_MODEL    verification model   (default: gpt-5.4)
  *   OPENAI_EMBED_MODEL     embedding model      (default: text-embedding-3-small)
  *   DEDUP_SIM_THRESHOLD    near-dup cosine cutoff, 0-1 (default: 0.9)
  */
@@ -288,13 +288,33 @@ Produce ${count} DISTINCT challenges. Each shows a short, realistic ${langName} 
 containing EXACTLY ONE bug on a specific line. The player taps the buggy line, then
 picks the correct diagnosis.
 
-Hard requirements — a challenge is useless if any is violated:
-- The snippet must contain a genuine bug that a competent reviewer agrees on.
-- 'bugLines' points at the single line where the bug lives (1-indexed).
-- 'diagnosis' has 3-4 options with EXACTLY ONE isCorrect:true. The correct one must be
-  the actual reason it fails; distractors must be plausible-sounding but clearly wrong.
-- 'fixes' has 2-3 options with EXACTLY ONE isCorrect:true, and that fix must truly
-  correct the bug. Wrong fixes must not accidentally also work.
+A strict adversarial reviewer checks every challenge and rejects on any doubt.
+Nearly all rejections come from the four traps below. Avoid them.
+
+TRAP 1 — "that isn't a bug". The snippet must MISBEHAVE: wrong output, an exception,
+a hang, or corrupted state. Redundant work, style, naming and "could be faster" are
+NOT bugs. Before you write a challenge, name a specific input and the wrong result it
+produces. If you cannot, throw the idea away.
+
+TRAP 2 — "the flagged line isn't the bug". The bug must be repairable by changing
+EXACTLY ONE line, and 'bugLines' is that line. Flag the line that must CHANGE, not the
+line where the symptom surfaces (e.g. flag the line that fails to advance the index,
+not the loop condition that then spins). If two lines are equally to blame, or the fix
+needs several edits, throw the idea away.
+
+TRAP 3 — "a distractor is arguably correct". Every wrong diagnosis must be FALSE about
+this snippet. A distractor is NOT allowed to be: a true-but-secondary observation, a
+vaguer restatement of the correct answer, or a real issue you chose not to flag. If a
+competent engineer could defend a distractor, rewrite it until it is plainly false.
+
+TRAP 4 — "more than one fix works". The correct fix must fully repair the bug; every
+wrong fix must leave it present or break something else. Watch for near-equivalents
+that both happen to work (\`if x:\` vs \`if x is not None:\`, \`del lst[i]\` vs
+\`lst.pop(i)\`). If two fixes both work, rewrite them.
+
+Also required:
+- 'diagnosis' has 3-4 options with EXACTLY ONE isCorrect:true.
+- 'fixes' has 2-3 options with EXACTLY ONE isCorrect:true.
 - 'explanation' explains why the original fails in 1-2 sentences.
 - 'impact.metric' is a punchy, concrete production consequence.
 - Vary difficulty, category, and bugType across the set. Avoid trivial or contrived bugs.
@@ -387,6 +407,18 @@ async function verify(
 }
 
 // ─── Build + validate ────────────────────────────────────────────────────────
+
+/**
+ * Ids come from the model, which reinvents ones the bank already uses (the
+ * prompt even shows "js-off-by-one-042" as the example). Suffix until unique so
+ * a generated challenge can never land on top of an existing row.
+ */
+function uniqueId(base: string, taken: Set<string>): string {
+  let id = base;
+  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+  taken.add(id);
+  return id;
+}
 
 function toChallenge(c: Candidate, language: Language, idx: number) {
   const d = DIFFICULTY_DEFAULTS[c.difficulty];
@@ -517,8 +549,12 @@ async function main() {
 
   const language = parseLang(process.argv[2]);
   const count = Math.max(1, Math.min(20, Number(process.argv[3] ?? 6)));
-  const genModel = process.env.OPENAI_MODEL || "gpt-4o";
-  const verifyModel = process.env.OPENAI_VERIFY_MODEL || genModel;
+  // Generation output tokens dominate the bill (a whole batch of challenges),
+  // so it runs on the cheaper mini. Verification emits one small verdict per
+  // candidate, so the strong model costs little and is worth it — it is the
+  // only thing standing between a bad challenge and the live game.
+  const genModel = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+  const verifyModel = process.env.OPENAI_VERIFY_MODEL || "gpt-5.4";
 
   const client = new OpenAI();
 
@@ -563,8 +599,11 @@ async function main() {
   }[] = [];
   const rejected: { id: string; stage: string; reasons: string[] }[] = [];
 
+  const takenIds = new Set(existingChallenges.map((c) => c.id));
+
   candidates.forEach((cand, i) => {
     const full = toChallenge(cand, language, i);
+    full.id = uniqueId(full.id, takenIds);
     const parsed = challengeSchema.safeParse(full);
     if (!parsed.success) {
       rejected.push({
@@ -760,13 +799,35 @@ async function main() {
     // Optionally write straight to the DB with --write-db.
     if (process.argv.includes("--write-db")) {
       const stampDate = new Date().toISOString().slice(0, 10);
-      await upsertMany(
+      // Drafts, never published: the verify pass is good but it is not a human,
+      // and an approved challenge can still be wrong. Review before promoting.
+      const report = await upsertMany(
         approved.map((v) => v.full as Challenge),
         `llm-${stampDate}`,
+        "draft",
       );
       console.log(
-        C.dim(`Upserted ${approved.length} approved challenges into the DB.\n`),
+        C.dim(
+          `DB: ${report.inserted.length} inserted, ${report.updated.length} updated — as DRAFTS (not visible to players).`,
+        ),
       );
+      if (report.inserted.length + report.updated.length > 0) {
+        console.log(
+          C.dim(
+            `Review them, then publish with:\n  UPDATE challenges SET status='published' WHERE id IN (...);`,
+          ),
+        );
+      }
+      // A skip means an id we generated is already owned by someone else — the
+      // challenge was NOT published, so say so rather than counting it above.
+      for (const s of report.skipped) {
+        console.log(
+          C.yellow(
+            `  ! ${s.id} not written — id already owned by source "${s.existingSource}"`,
+          ),
+        );
+      }
+      console.log("");
     } else {
       console.log(
         C.dim("Review the file, then run again with --write-db to publish.\n"),
