@@ -3,30 +3,25 @@
 import { create } from "zustand";
 import { HEALTH, XP_BONUS } from "@/lib/constants";
 import {
-  accuracyMultiplier,
   computeRoundScore,
   computeRoundXP,
   type Accuracy,
 } from "@/lib/scoring";
-import {
-  correctDiagnosis,
-  correctFix,
-  isBugLineCorrect,
-  isDiagnosisCorrect,
-  isFixCorrect,
-  toPublicChallenge,
-} from "@/services/challengeService";
-import type { Challenge, PublicChallenge } from "@/types/challenge";
+import { gradeStep } from "@/services/gameApi";
+import type { ProductionImpact, PublicChallenge } from "@/types/challenge";
 import type {
   GameMode,
   GameStatus,
+  GradeKind,
+  GradeResult,
+  RevealPayload,
   RoundOutcome,
   RoundRecord,
   SessionConfig,
   SessionSummaryData,
 } from "@/types/game";
 
-/** Categories/bug types that trigger the heavier "security missed" penalty. */
+/** Bug types that trigger the heavier "security missed" health penalty. */
 const SECURITY_BUGS = new Set([
   "sql_injection",
   "xss",
@@ -34,11 +29,27 @@ const SECURITY_BUGS = new Set([
   "authorization_error",
 ]);
 
+// ─── Grader injection (default = server API; tests inject a local grader) ────
+
+type Grader = (
+  challengeId: string,
+  kind: GradeKind,
+  selectedId: string | null,
+) => Promise<GradeResult>;
+
+let grader: Grader = gradeStep;
+
+/** Override the grader (tests use a local one built from seed data). */
+export function setGrader(g: Grader | null): void {
+  grader = g ?? gradeStep;
+}
+
 export interface RoundResultView {
   outcome: RoundOutcome;
   challengeId: string;
   bugLabel: string;
   explanation: string;
+  productionImpact: ProductionImpact | null;
   scoreAwarded: number;
   xpAwarded: number;
   comboMultiplier: number;
@@ -46,18 +57,13 @@ export interface RoundResultView {
   healthDelta: number;
   accuracy: Accuracy;
   correctLineId: string;
-  correctDiagnosisId: string;
-  correctFixId: string;
   correctFixCode: string;
 }
 
 interface GameState {
-  // Session config + data
   config: SessionConfig | null;
-  challenges: Challenge[];
+  challenges: PublicChallenge[];
   roundIndex: number;
-
-  // Machine
   status: GameStatus;
 
   // Per-round selections
@@ -66,8 +72,9 @@ interface GameState {
   pendingFixId: string | null;
   retryUsed: boolean;
   hintUsed: boolean;
-  shake: number; // increments to retrigger shake animation
-  wrongLineId: string | null; // last wrong line, for reveal
+  grading: boolean; // a grade round-trip is in flight
+  shake: number;
+  wrongLineId: string | null;
 
   // Timer
   totalSec: number;
@@ -76,30 +83,27 @@ interface GameState {
   // Session totals
   score: number;
   xp: number;
-  combo: number; // current correct streak
+  combo: number;
   maxCombo: number;
   lives: number;
   systemHealth: number;
   correctRounds: number;
   rounds: RoundRecord[];
   gameOverReason: "lives" | "health" | null;
-
-  // Result of the round just finished
   lastResult: RoundResultView | null;
 
-  // Derived helpers
-  currentChallenge: () => Challenge | null;
+  // Derived
   currentPublic: () => PublicChallenge | null;
   totalRounds: () => number | null;
 
   // Actions
-  startSession: (config: SessionConfig, challenges: Challenge[]) => void;
+  startSession: (config: SessionConfig, challenges: PublicChallenge[]) => void;
   selectLine: (lineId: string) => void;
-  submitLine: () => void;
+  submitLine: () => Promise<void>;
   selectDiagnosis: (id: string) => void;
-  submitDiagnosis: () => void;
+  submitDiagnosis: () => Promise<void>;
   selectFix: (id: string) => void;
-  submitFix: () => void;
+  submitFix: () => Promise<void>;
   useHint: () => void;
   tick: () => void;
   nextRound: () => void;
@@ -119,6 +123,9 @@ function isPractice(mode: GameMode) {
   return mode === "practice";
 }
 
+type Set = (partial: Partial<GameState>) => void;
+type Get = () => GameState;
+
 export const useGameStore = create<GameState>((set, get) => ({
   config: null,
   challenges: [],
@@ -130,6 +137,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   pendingFixId: null,
   retryUsed: false,
   hintUsed: false,
+  grading: false,
   shake: 0,
   wrongLineId: null,
 
@@ -147,18 +155,13 @@ export const useGameStore = create<GameState>((set, get) => ({
   gameOverReason: null,
   lastResult: null,
 
-  currentChallenge: () => {
+  currentPublic: () => {
     const { challenges, roundIndex, config } = get();
     if (challenges.length === 0) return null;
     if (config?.mode === "production" || config?.totalRounds == null) {
       return challenges[roundIndex % challenges.length];
     }
     return challenges[roundIndex] ?? null;
-  },
-
-  currentPublic: () => {
-    const c = get().currentChallenge();
-    return c ? toPublicChallenge(c) : null;
   },
 
   totalRounds: () => get().config?.totalRounds ?? null,
@@ -188,16 +191,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ pendingLineId: lineId, status: "line_selected" });
   },
 
-  submitLine: () => {
+  submitLine: async () => {
     const s = get();
-    if (s.status !== "line_selected" || !s.pendingLineId) return;
-    const c = s.currentChallenge();
+    if (s.status !== "line_selected" || !s.pendingLineId || s.grading) return;
+    const c = s.currentPublic();
     if (!c) return;
-    if (isBugLineCorrect(c, s.pendingLineId)) {
-      set({ status: "diagnosing", wrongLineId: null });
-    } else {
-      handleStageMiss(set, get, s.pendingLineId);
-    }
+    const res = await runGrade(set, get, c.id, "line", s.pendingLineId);
+    if (!res) return; // network error — no penalty, let them retry
+    if (get().status !== "line_selected") return; // timed out mid-grade
+    if (res.correct) set({ status: "diagnosing", wrongLineId: null });
+    else handleStageMiss(set, get, s.pendingLineId, res.reveal);
   },
 
   selectDiagnosis: (id) => {
@@ -205,16 +208,25 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ pendingDiagnosisId: id });
   },
 
-  submitDiagnosis: () => {
+  submitDiagnosis: async () => {
     const s = get();
-    if (s.status !== "diagnosing" || !s.pendingDiagnosisId) return;
-    const c = s.currentChallenge();
+    if (s.status !== "diagnosing" || !s.pendingDiagnosisId || s.grading) return;
+    const c = s.currentPublic();
     if (!c) return;
-    if (isDiagnosisCorrect(c, s.pendingDiagnosisId)) {
-      if (s.config?.skipFix) resolveRound(set, get, "correct");
+    const res = await runGrade(
+      set,
+      get,
+      c.id,
+      "diagnosis",
+      s.pendingDiagnosisId,
+    );
+    if (!res) return;
+    if (get().status !== "diagnosing") return;
+    if (res.correct) {
+      if (s.config?.skipFix) resolveRound(set, get, "correct", res.reveal);
       else set({ status: "fixing" });
     } else {
-      handleStageMiss(set, get, null);
+      handleStageMiss(set, get, null, res.reveal);
     }
   },
 
@@ -223,16 +235,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ pendingFixId: id });
   },
 
-  submitFix: () => {
+  submitFix: async () => {
     const s = get();
-    if (s.status !== "fixing" || !s.pendingFixId) return;
-    const c = s.currentChallenge();
+    if (s.status !== "fixing" || !s.pendingFixId || s.grading) return;
+    const c = s.currentPublic();
     if (!c) return;
-    if (isFixCorrect(c, s.pendingFixId)) {
-      resolveRound(set, get, "correct");
-    } else {
-      handleStageMiss(set, get, null);
-    }
+    const res = await runGrade(set, get, c.id, "fix", s.pendingFixId);
+    if (!res) return;
+    if (get().status !== "fixing") return;
+    if (res.correct) resolveRound(set, get, "correct", res.reveal);
+    else handleStageMiss(set, get, null, res.reveal);
   },
 
   useHint: () => {
@@ -242,12 +254,12 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   tick: () => {
     const s = get();
-    if (!ACTIVE.includes(s.status)) return;
-    if (isPractice(s.config!.mode)) return; // no timer in practice
+    if (!ACTIVE.includes(s.status) || s.grading) return;
+    if (isPractice(s.config!.mode)) return;
     const next = s.timeLeftSec - 1;
     if (next <= 0) {
       set({ timeLeftSec: 0 });
-      resolveRound(set, get, "timeout");
+      void forfeit(set, get);
     } else {
       set({ timeLeftSec: next });
     }
@@ -260,7 +272,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       set({ status: "session_complete" });
       return;
     }
-    // Classic/daily: stop when rounds are exhausted.
     const total = s.config?.totalRounds;
     if (total != null && s.roundIndex + 1 >= total) {
       set({ status: "session_complete" });
@@ -296,14 +307,29 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 }));
 
-// ─── Internal transition helpers ───────────────────────────────────────────
+// ─── Internal helpers ───────────────────────────────────────────────────────
 
-function beginRound(
-  set: (partial: Partial<GameState>) => void,
-  get: () => GameState,
-) {
+/** Wrap a grade call with the in-flight flag; returns null on error. */
+async function runGrade(
+  set: Set,
+  get: Get,
+  challengeId: string,
+  kind: GradeKind,
+  selectedId: string | null,
+): Promise<GradeResult | null> {
+  set({ grading: true });
+  try {
+    return await grader(challengeId, kind, selectedId);
+  } catch {
+    return null;
+  } finally {
+    set({ grading: false });
+  }
+}
+
+function beginRound(set: Set, get: Get) {
   const s = get();
-  const c = s.currentChallenge();
+  const c = s.currentPublic();
   if (!c) {
     set({ status: "session_complete" });
     return;
@@ -318,6 +344,7 @@ function beginRound(
     pendingFixId: null,
     retryUsed: false,
     hintUsed: false,
+    grading: false,
     wrongLineId: null,
     totalSec: time,
     timeLeftSec: time,
@@ -325,21 +352,29 @@ function beginRound(
   });
 }
 
-/**
- * A wrong answer at any stage. First miss in a round grants one retry
- * (except practice = unlimited, no penalty). A second miss fails the round.
- */
+async function forfeit(set: Set, get: Get) {
+  const s = get();
+  if (s.status === "round_result") return;
+  const c = s.currentPublic();
+  if (!c) return;
+  const res = await runGrade(set, get, c.id, "forfeit", null);
+  if (get().status === "round_result") return;
+  resolveRound(set, get, "timeout", res?.reveal);
+}
+
+/** A wrong answer. First miss grants one retry (unless practice=unlimited or
+ *  allowRetry:false = one-shot); a second miss fails the round. */
 function handleStageMiss(
-  set: (partial: Partial<GameState>) => void,
-  get: () => GameState,
+  set: Set,
+  get: Get,
   wrongLineId: string | null,
+  reveal: RevealPayload | undefined,
 ) {
   const s = get();
   const practice = isPractice(s.config!.mode);
   const shake = s.shake + 1;
 
   if (practice) {
-    // Unlimited retries, no penalty — clear the pending wrong selection.
     set({
       shake,
       retryUsed: true,
@@ -352,15 +387,13 @@ function handleStageMiss(
     return;
   }
 
-  // Simple/one-shot mode: any miss fails the round immediately.
   if (s.config!.allowRetry === false) {
     set({ shake, wrongLineId: wrongLineId ?? s.wrongLineId });
-    resolveRound(set, get, "incorrect");
+    resolveRound(set, get, "incorrect", reveal);
     return;
   }
 
   if (!s.retryUsed) {
-    // Grant one retry; downgrade accuracy but stay on this stage.
     set({
       retryUsed: true,
       shake,
@@ -374,30 +407,30 @@ function handleStageMiss(
     return;
   }
 
-  // Second miss — the round fails.
   set({ shake, wrongLineId: wrongLineId ?? s.wrongLineId });
-  resolveRound(set, get, "incorrect");
+  resolveRound(set, get, "incorrect", reveal);
 }
 
 function resolveRound(
-  set: (partial: Partial<GameState>) => void,
-  get: () => GameState,
+  set: Set,
+  get: Get,
   outcome: RoundOutcome,
+  reveal: RevealPayload | undefined,
 ) {
   const s = get();
-  const c = s.currentChallenge();
+  if (s.status === "round_result") return; // guard double-resolve
+  const c = s.currentPublic();
   if (!c) return;
   const practice = isPractice(s.config!.mode);
 
-  const cFix = correctFix(c)!;
-  const cDiag = correctDiagnosis(c)!;
-
-  let accuracy: Accuracy;
-  if (outcome === "correct") {
-    accuracy = s.hintUsed ? "hint" : s.retryUsed ? "retry" : "perfect";
-  } else {
-    accuracy = "incorrect";
-  }
+  const accuracy: Accuracy =
+    outcome === "correct"
+      ? s.hintUsed
+        ? "hint"
+        : s.retryUsed
+          ? "retry"
+          : "perfect"
+      : "incorrect";
 
   const totalMs = s.totalSec * 1000;
   const remainingMs = s.timeLeftSec * 1000;
@@ -409,15 +442,15 @@ function resolveRound(
   let healthDelta = 0;
 
   if (outcome === "correct") {
-    const scoreResult = computeRoundScore({
+    const r = computeRoundScore({
       baseScore: c.baseScore,
       accuracy,
       remainingMs,
       totalMs,
       correctStreak: s.combo,
     });
-    scoreAwarded = scoreResult.score;
-    comboMult = scoreResult.combo;
+    scoreAwarded = r.score;
+    comboMult = r.combo;
     const perfect = accuracy === "perfect";
     xpAwarded = computeRoundXP(
       c.xpReward,
@@ -425,9 +458,8 @@ function resolveRound(
       perfect ? XP_BONUS.perfectRound : 0,
     );
     newCombo = s.combo + 1;
-    if (!practice) {
+    if (!practice)
       healthDelta = HEALTH.correct + (perfect ? HEALTH.perfectRoundBonus : 0);
-    }
   } else {
     newCombo = 0;
     if (!practice) {
@@ -438,14 +470,11 @@ function resolveRound(
     }
   }
 
-  // Apply health within bounds.
   const systemHealth = Math.max(
     HEALTH.min,
     Math.min(HEALTH.max, s.systemHealth + healthDelta),
   );
 
-  // Lives: lose at most one per failed round (classic/daily). Production
-  // ignores lives and ends on health. Practice never loses.
   let lives = s.lives;
   let gameOverReason: GameState["gameOverReason"] = null;
   if (outcome !== "correct" && !practice) {
@@ -456,7 +485,6 @@ function resolveRound(
       if (lives <= 0) gameOverReason = "lives";
     }
   }
-  // Production can also die on a bad-enough correct? No — only failures hurt.
   if (s.config!.mode === "production" && systemHealth <= HEALTH.min) {
     gameOverReason = "health";
   }
@@ -479,18 +507,17 @@ function resolveRound(
   const result: RoundResultView = {
     outcome,
     challengeId: c.id,
-    bugLabel: bugLabel(c),
-    explanation: c.explanation,
+    bugLabel: reveal?.bugLabel ?? "Bug",
+    explanation: reveal?.explanation ?? "",
+    productionImpact: reveal?.productionImpact ?? null,
     scoreAwarded,
     xpAwarded,
     comboMultiplier: comboMult,
     newCombo,
     healthDelta,
     accuracy,
-    correctLineId: c.bugLineIds[0],
-    correctDiagnosisId: cDiag.id,
-    correctFixId: cFix.id,
-    correctFixCode: cFix.code,
+    correctLineId: reveal?.correctLineId ?? "",
+    correctFixCode: reveal?.correctFixCode ?? "",
   };
 
   set({
@@ -507,34 +534,3 @@ function resolveRound(
     lastResult: result,
   });
 }
-
-/** Human-readable bug label from the bug type. */
-export function bugLabel(c: Challenge): string {
-  const map: Record<string, string> = {
-    off_by_one: "Off-by-One Error",
-    null_reference: "Null Reference",
-    undefined_access: "Undefined Access",
-    missing_await: "Missing Await",
-    unhandled_promise: "Unhandled Rejection",
-    race_condition: "Race Condition",
-    sql_injection: "SQL Injection",
-    xss: "XSS Vulnerability",
-    authorization_error: "Broken Authorization",
-    authentication_error: "Auth Vulnerability",
-    memory_leak: "Memory Leak",
-    resource_leak: "Resource Leak",
-    performance_issue: "Performance Issue",
-    incorrect_mutation: "Incorrect Mutation",
-    wrong_condition: "Wrong Condition",
-    wrong_status_code: "Wrong Status Code",
-    loose_equality: "Loose Equality",
-    type_mismatch: "Type Mismatch",
-    missing_return: "Missing Return",
-    stale_state: "Stale State",
-    infinite_loop: "Infinite Loop",
-    syntax_error: "Syntax Error",
-  };
-  return map[c.bugType] ?? "Bug";
-}
-
-export { accuracyMultiplier };

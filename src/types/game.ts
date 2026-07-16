@@ -1,4 +1,21 @@
-import type { Difficulty, Language } from "./challenge";
+import type { Difficulty, Language, ProductionImpact } from "./challenge";
+
+/** Answer/explanation data revealed by the server when a round resolves. */
+export interface RevealPayload {
+  bugLabel: string;
+  explanation: string;
+  productionImpact: ProductionImpact;
+  correctLineId: string;
+  correctDiagnosisId: string;
+  correctFixCode: string;
+}
+
+export type GradeKind = "line" | "diagnosis" | "fix" | "forfeit";
+
+export interface GradeResult {
+  correct: boolean;
+  reveal?: RevealPayload;
+}
 
 export type GameMode = "classic" | "production" | "daily" | "practice";
 
