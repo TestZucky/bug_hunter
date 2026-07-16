@@ -92,9 +92,12 @@ define require_tunnel
 	echo "No tunnel on localhost:$(TUNNEL_PORT). Run 'make tunnel' in another terminal."; exit 1; }
 endef
 
+# The VM has no public IP, so SSH goes through IAP TCP forwarding (allowed by
+# the `allow-iap-ssh` rule, source 35.235.240.0/20 only). Postgres is reachable
+# from inside the VPC and from nowhere else.
 tunnel: ## Open an SSH tunnel to the prod DB (leave running; Ctrl-C to stop)
-	@echo "Tunnel: localhost:$(TUNNEL_PORT) -> $(VM):5432. Leave this running; Ctrl-C to stop."
-	gcloud compute ssh $(VM) --zone=$(ZONE) -- -L $(TUNNEL_PORT):localhost:5432 -N
+	@echo "Tunnel: localhost:$(TUNNEL_PORT) -> $(VM):5432 via IAP. Leave this running; Ctrl-C to stop."
+	gcloud compute ssh $(VM) --zone=$(ZONE) --tunnel-through-iap -- -L $(TUNNEL_PORT):localhost:5432 -N
 
 gen-prod: ## Generate challenges as DRAFTS in prod (LANG=python N=8; needs `make tunnel`)
 	$(require_tunnel)
