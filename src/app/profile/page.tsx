@@ -32,7 +32,8 @@ export default function ProfilePage() {
 
   const { rank, next, progress } = getRankProgress(totalXp);
   const level = getLevel(totalXp);
-  const accuracy = totalRounds > 0 ? Math.round((totalCorrect / totalRounds) * 100) : 0;
+  const accuracy =
+    totalRounds > 0 ? Math.round((totalCorrect / totalRounds) * 100) : 0;
 
   const [editing, setEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState(displayName);

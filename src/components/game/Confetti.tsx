@@ -4,7 +4,13 @@ import { motion } from "motion/react";
 import { useSettingsStore } from "@/stores/settingsStore";
 
 const COLORS = [
-  "#6366f1", "#22d3ee", "#4ade80", "#fbbf24", "#f87171", "#c084fc", "#fb923c",
+  "#6366f1",
+  "#22d3ee",
+  "#4ade80",
+  "#fbbf24",
+  "#f87171",
+  "#c084fc",
+  "#fb923c",
 ];
 
 /** Lightweight confetti burst (ported from the Figma export). */

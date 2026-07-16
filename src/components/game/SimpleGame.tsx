@@ -174,7 +174,10 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
           {outcome?.rankedUp && (
             <div
               className="mb-4 p-2.5 rounded-xl text-sm font-semibold"
-              style={{ background: "rgba(99,102,241,0.12)", color: outcome.rankAfter.color }}
+              style={{
+                background: "rgba(99,102,241,0.12)",
+                color: outcome.rankAfter.color,
+              }}
             >
               Ranked up to {outcome.rankAfter.name}!
             </div>
@@ -225,7 +228,9 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
         </Link>
         <div className="flex items-center gap-1.5">
           <Star className="w-4 h-4" style={{ color: "#fbbf24" }} />
-          <span className="font-bold tabular-nums">{score.toLocaleString()}</span>
+          <span className="font-bold tabular-nums">
+            {score.toLocaleString()}
+          </span>
           {combo > 1 && (
             <span
               className="ml-1 flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded-full"
@@ -294,9 +299,18 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
             style={{ background: "rgba(255,255,255,0.02)" }}
           >
             <div className="flex gap-1.5" aria-hidden>
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#ef4444" }} />
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#fbbf24" }} />
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#4ade80" }} />
+              <span
+                className="w-2.5 h-2.5 rounded-full"
+                style={{ background: "#ef4444" }}
+              />
+              <span
+                className="w-2.5 h-2.5 rounded-full"
+                style={{ background: "#fbbf24" }}
+              />
+              <span
+                className="w-2.5 h-2.5 rounded-full"
+                style={{ background: "#4ade80" }}
+              />
             </div>
             <span className="text-xs text-muted-foreground font-mono truncate">
               {pub.filename}
@@ -307,7 +321,8 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
             {pub.code.map((line, i) => {
               const empty = line.content.trim() === "";
               const tappable =
-                (status === "inspecting" || status === "line_selected") && !empty;
+                (status === "inspecting" || status === "line_selected") &&
+                !empty;
               const selected = pendingLineId === line.id;
               const isBug = revealBug === line.id;
               const isWrongPick = wrongLineId === line.id;
@@ -318,7 +333,11 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
               if (locked) {
                 bg = "rgba(74,222,128,0.1)";
                 border = "#4ade80";
-              } else if (showResult && isBug && lastResult?.outcome === "correct") {
+              } else if (
+                showResult &&
+                isBug &&
+                lastResult?.outcome === "correct"
+              ) {
                 bg = "rgba(74,222,128,0.1)";
                 border = "#4ade80";
               } else if (showResult && isBug) {
@@ -357,10 +376,16 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
                     ))}
                   </span>
                   {locked && (
-                    <Check className="w-4 h-4 shrink-0 ml-1 mt-0.5" style={{ color: "#4ade80" }} />
+                    <Check
+                      className="w-4 h-4 shrink-0 ml-1 mt-0.5"
+                      style={{ color: "#4ade80" }}
+                    />
                   )}
                   {showResult && isBug && lastResult?.outcome !== "correct" && (
-                    <span className="text-[10px] shrink-0 ml-1 mt-1" style={{ color: "#fbbf24" }}>
+                    <span
+                      className="text-[10px] shrink-0 ml-1 mt-1"
+                      style={{ color: "#fbbf24" }}
+                    >
                       bug
                     </span>
                   )}
@@ -387,7 +412,10 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
                 >
                   <span
                     className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold"
-                    style={{ background: "rgba(99,102,241,0.15)", color: "#a78bfa" }}
+                    style={{
+                      background: "rgba(99,102,241,0.15)",
+                      color: "#a78bfa",
+                    }}
                   >
                     {String.fromCharCode(65 + i)}
                   </span>
@@ -424,7 +452,8 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
                     className="flex items-center gap-1.5 text-sm font-bold"
                     style={{ color: "#4ade80" }}
                   >
-                    <Check className="w-4 h-4" /> Correct · +{lastResult.scoreAwarded}
+                    <Check className="w-4 h-4" /> Correct · +
+                    {lastResult.scoreAwarded}
                   </span>
                 ) : (
                   <span
@@ -432,7 +461,9 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
                     style={{ color: "#ef4444" }}
                   >
                     <X className="w-4 h-4" />
-                    {lastResult.outcome === "timeout" ? "Time's up" : "Not quite"}
+                    {lastResult.outcome === "timeout"
+                      ? "Time's up"
+                      : "Not quite"}
                   </span>
                 )}
                 <span className="text-xs text-muted-foreground ml-auto">

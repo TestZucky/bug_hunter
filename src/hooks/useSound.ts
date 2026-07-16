@@ -13,7 +13,10 @@ export type SoundName =
   | "complete";
 
 /** Simple WebAudio blips — no assets, respects the sound toggle and autoplay. */
-const TONES: Record<SoundName, { freq: number; dur: number; type: OscillatorType }[]> = {
+const TONES: Record<
+  SoundName,
+  { freq: number; dur: number; type: OscillatorType }[]
+> = {
   select: [{ freq: 440, dur: 0.05, type: "sine" }],
   correct: [
     { freq: 523, dur: 0.08, type: "sine" },

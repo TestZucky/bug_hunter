@@ -28,7 +28,6 @@ export function GameShell({ onExit }: { onExit: () => void }) {
   const { play, vibrate } = useSound();
 
   const status = useGameStore((s) => s.status);
-  const roundIndex = useGameStore((s) => s.roundIndex);
   const config = useGameStore((s) => s.config);
   const pendingLineId = useGameStore((s) => s.pendingLineId);
   const pendingDiagnosisId = useGameStore((s) => s.pendingDiagnosisId);
@@ -46,7 +45,7 @@ export function GameShell({ onExit }: { onExit: () => void }) {
   const submitDiagnosis = useGameStore((s) => s.submitDiagnosis);
   const selectFix = useGameStore((s) => s.selectFix);
   const submitFix = useGameStore((s) => s.submitFix);
-  const useHint = useGameStore((s) => s.useHint);
+  const triggerHint = useGameStore((s) => s.useHint);
   const nextRound = useGameStore((s) => s.nextRound);
   const pause = useGameStore((s) => s.pause);
   const resume = useGameStore((s) => s.resume);
@@ -77,7 +76,8 @@ export function GameShell({ onExit }: { onExit: () => void }) {
       (prevStatus.current === "line_selected" && status === "diagnosing") ||
       (prevStatus.current === "diagnosing" && status === "fixing");
     if (advanced) play("select");
-    if (status === "inspecting" || status === "round_intro") warned.current = false;
+    if (status === "inspecting" || status === "round_intro")
+      warned.current = false;
     prevStatus.current = status;
   }, [status, play]);
 
@@ -128,12 +128,12 @@ export function GameShell({ onExit }: { onExit: () => void }) {
     status === "line_selected"
       ? "Find Bug"
       : status === "diagnosing"
-      ? "Confirm Diagnosis"
-      : status === "fixing"
-      ? "Ship Fix"
-      : status === "inspecting"
-      ? "Select a line"
-      : "Next";
+        ? "Confirm Diagnosis"
+        : status === "fixing"
+          ? "Ship Fix"
+          : status === "inspecting"
+            ? "Select a line"
+            : "Next";
 
   // ── Keyboard controls ────────────────────────────────────────────
   useEffect(() => {
@@ -242,10 +242,10 @@ export function GameShell({ onExit }: { onExit: () => void }) {
               {status === "inspecting" || status === "line_selected"
                 ? "Step 1 · Find the bug"
                 : status === "diagnosing"
-                ? "Step 2 · Diagnose"
-                : status === "fixing"
-                ? "Step 3 · Fix"
-                : "Result"}
+                  ? "Step 2 · Diagnose"
+                  : status === "fixing"
+                    ? "Step 3 · Fix"
+                    : "Result"}
             </span>
           </div>
 
@@ -256,9 +256,11 @@ export function GameShell({ onExit }: { onExit: () => void }) {
             language={publicChallenge.language}
             status={status}
             pendingLineId={pendingLineId}
-            correctLineId={showResult ? lastResult?.correctLineId ?? null : null}
+            correctLineId={
+              showResult ? (lastResult?.correctLineId ?? null) : null
+            }
             wrongLineId={wrongLineId}
-            outcome={showResult ? lastResult?.outcome ?? null : null}
+            outcome={showResult ? (lastResult?.outcome ?? null) : null}
             shakeKey={shake}
             onSelectLine={(id) => {
               selectLine(id);
@@ -277,8 +279,9 @@ export function GameShell({ onExit }: { onExit: () => void }) {
               }}
             >
               <Lightbulb className="w-3.5 h-3.5 shrink-0" />
-              Hint: this is a <strong>{challenge.category.replace(/_/g, " ")}</strong>{" "}
-              bug. Look for a <strong>{challenge.bugType.replace(/_/g, " ")}</strong>.
+              Hint: this is a{" "}
+              <strong>{challenge.category.replace(/_/g, " ")}</strong> bug. Look
+              for a <strong>{challenge.bugType.replace(/_/g, " ")}</strong>.
             </div>
           )}
 
@@ -315,11 +318,13 @@ export function GameShell({ onExit }: { onExit: () => void }) {
                 id: o.id,
                 content: (
                   <code className="font-mono text-xs whitespace-pre-wrap break-all">
-                    {tokenize(o.code, publicChallenge.language).map((tok, j) => (
-                      <span key={j} style={{ color: TOKEN_COLORS[tok.k] }}>
-                        {tok.t}
-                      </span>
-                    ))}
+                    {tokenize(o.code, publicChallenge.language).map(
+                      (tok, j) => (
+                        <span key={j} style={{ color: TOKEN_COLORS[tok.k] }}>
+                          {tok.t}
+                        </span>
+                      ),
+                    )}
                   </code>
                 ),
               }))}
@@ -356,7 +361,7 @@ export function GameShell({ onExit }: { onExit: () => void }) {
 
             <button
               onClick={() => {
-                useHint();
+                triggerHint();
                 play("select");
               }}
               disabled={hintUsed}
@@ -395,7 +400,10 @@ export function GameShell({ onExit }: { onExit: () => void }) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            style={{ background: "rgba(7,7,15,0.85)", backdropFilter: "blur(12px)" }}
+            style={{
+              background: "rgba(7,7,15,0.85)",
+              backdropFilter: "blur(12px)",
+            }}
           >
             <div
               className="rounded-3xl border border-border p-8 w-72 text-center"

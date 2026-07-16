@@ -1,10 +1,6 @@
 import type { Difficulty, Language } from "./challenge";
 
-export type GameMode =
-  | "classic"
-  | "production"
-  | "daily"
-  | "practice";
+export type GameMode = "classic" | "production" | "daily" | "practice";
 
 /** Explicit state machine states from the TDD (§13). */
 export type GameStatus =

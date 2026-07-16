@@ -40,7 +40,11 @@ export function AnswerPanel({
         <h2 className="text-sm font-semibold text-foreground">{heading}</h2>
         {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
-      <div className="flex flex-col gap-2" role="radiogroup" aria-label={heading}>
+      <div
+        className="flex flex-col gap-2"
+        role="radiogroup"
+        aria-label={heading}
+      >
         {options.map((opt, i) => {
           const selected = selectedId === opt.id;
           return (
@@ -55,9 +59,7 @@ export function AnswerPanel({
                 "hover:border-[color:var(--ring)]",
               )}
               style={{
-                background: selected
-                  ? `${accent}1a`
-                  : "rgba(255,255,255,0.02)",
+                background: selected ? `${accent}1a` : "rgba(255,255,255,0.02)",
                 borderColor: selected ? accent : "var(--border)",
               }}
             >

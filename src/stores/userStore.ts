@@ -113,7 +113,8 @@ export const useUserStore = create<UserState>()(
           totalXp: xpAfter,
           dailyStreak: streak,
           longestStreak: Math.max(state.longestStreak, streak),
-          lastActivityDate: summary.correctRounds > 0 ? today : state.lastActivityDate,
+          lastActivityDate:
+            summary.correctRounds > 0 ? today : state.lastActivityDate,
           gamesPlayed: state.gamesPlayed + 1,
           totalCorrect: state.totalCorrect + summary.correctRounds,
           totalRounds: state.totalRounds + summary.totalRounds,

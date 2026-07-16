@@ -146,7 +146,10 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
       ["sort() mutates the original array", false],
     ],
     fixes: [
-      ["    .sort((a, b) => new Date(a.joinedAt) - new Date(b.joinedAt));", true],
+      [
+        "    .sort((a, b) => new Date(a.joinedAt) - new Date(b.joinedAt));",
+        true,
+      ],
       ["    .sort((a, b) => a.joinedAt > b.joinedAt);", false],
       ["    .sort((a, b) => a.joinedAt.localeCompare(b));", false],
     ],
@@ -154,7 +157,8 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
       "The minus operator coerces the ISO strings to NaN, so the comparator returns NaN and the sort order is unspecified. Convert to Date (or timestamps) before subtracting.",
     impact: {
       title: "Confusing list order",
-      description: "Users appeared in random order, confusing the support team.",
+      description:
+        "Users appeared in random order, confusing the support team.",
       severity: "low",
       metric: "3 days of support tickets",
     },
@@ -191,7 +195,8 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
       "The function computes the rounded price but drops it — with no return statement it yields undefined, so `final` is undefined.",
     impact: {
       title: "NaN prices in the UI",
-      description: "Order totals rendered as NaN because the discount was undefined.",
+      description:
+        "Order totals rendered as NaN because the discount was undefined.",
       severity: "medium",
       metric: "610 orders showing NaN",
     },
@@ -232,7 +237,8 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
       "res.json() is asynchronous. Without await, `data` holds a pending Promise, which is cached and returned instead of the parsed body.",
     impact: {
       title: "Empty profile pages",
-      description: "Every profile rendered blank because the payload was a Promise.",
+      description:
+        "Every profile rendered blank because the payload was a Promise.",
       severity: "high",
       metric: "12,000 sessions broken for 6h",
     },
@@ -258,7 +264,10 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
     ],
     bugLines: [3],
     diagnosis: [
-      ["The loop overshoots by one and reads items[length], which is undefined", true],
+      [
+        "The loop overshoots by one and reads items[length], which is undefined",
+        true,
+      ],
       ["Tax should be added before the discount", false],
       ["subtotal should start at items[0].price", false],
     ],
@@ -308,7 +317,8 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
       "Directly mutating the previous state means the reference never changes, so React/Redux skip re-rendering. Return a new object with a new array instead.",
     impact: {
       title: "UI not updating",
-      description: "New todos were saved but never appeared until a full reload.",
+      description:
+        "New todos were saved but never appeared until a full reload.",
       severity: "medium",
       metric: "Ghost bug reported 40+ times",
     },
@@ -332,7 +342,10 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
     ],
     bugLines: [2],
     diagnosis: [
-      ["Assignment (=) instead of comparison makes the check always true", true],
+      [
+        "Assignment (=) instead of comparison makes the check always true",
+        true,
+      ],
       ["Admins should not be allowed to delete", false],
       ["resource.ownerId is compared to the wrong field", false],
     ],
@@ -345,7 +358,8 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
       "A single = assigns 'admin' to user.role and evaluates truthy, so every caller passes the admin check and can delete anything.",
     impact: {
       title: "Broken authorization",
-      description: "Any authenticated user could delete resources they didn't own.",
+      description:
+        "Any authenticated user could delete resources they didn't own.",
       severity: "critical",
       metric: "Privilege escalation for all users",
     },
@@ -370,7 +384,10 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
     ],
     bugLines: [3],
     diagnosis: [
-      ["send() returns a Promise, so its rejection escapes the try/catch", true],
+      [
+        "send() returns a Promise, so its rejection escapes the try/catch",
+        true,
+      ],
       ["logger.error needs a third argument", false],
       ["user.email is never validated", false],
     ],
@@ -410,12 +427,18 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
     ],
     bugLines: [3],
     diagnosis: [
-      ["Under concurrency the TTL may never be set, so the key never expires", true],
+      [
+        "Under concurrency the TTL may never be set, so the key never expires",
+        true,
+      ],
       ["incr should be decr for rate limiting", false],
       ["The limit comparison should be strictly less-than", false],
     ],
     fixes: [
-      ["  if (count >= 1 && count <= limit) { await redis.expire(key, 60); }", false],
+      [
+        "  if (count >= 1 && count <= limit) { await redis.expire(key, 60); }",
+        false,
+      ],
       ["  await redis.expire(key, 60); // always refresh TTL after incr", true],
       ["  if (count !== 1) { await redis.expire(key, 60); }", false],
     ],
@@ -423,7 +446,8 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
       "Only the request that sees count===1 sets the TTL. If two requests increment before either sets it, no one does — the key lives forever and permanently blocks the user. Always set the expiry after incrementing.",
     impact: {
       title: "Permanent lockout",
-      description: "A race left counters with no TTL, blocking real users indefinitely.",
+      description:
+        "A race left counters with no TTL, blocking real users indefinitely.",
       severity: "high",
       metric: "340 premium users locked out",
     },
@@ -454,15 +478,22 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
       ["orders should be a Map, not an array", false],
     ],
     fixes: [
-      ["    const o = await db.query('SELECT * FROM orders WHERE user = ANY($1)', [userIds]);", true],
-      ["    const o = db.query('SELECT * FROM orders WHERE user=$1', [id]);", false],
+      [
+        "    const o = await db.query('SELECT * FROM orders WHERE user = ANY($1)', [userIds]);",
+        true,
+      ],
+      [
+        "    const o = db.query('SELECT * FROM orders WHERE user=$1', [id]);",
+        false,
+      ],
       ["    const o = await db.query('SELECT * FROM orders', []);", false],
     ],
     explanation:
       "Awaiting one query per id runs them sequentially — 500 users means 500 round-trips. Fetch them in a single query with ANY($1) (or batch/parallelize) instead. Note the correct fix replaces the loop body with one set-based query.",
     impact: {
       title: "Latency spike",
-      description: "Dashboard load time grew linearly with the number of users.",
+      description:
+        "Dashboard load time grew linearly with the number of users.",
       severity: "high",
       metric: "p95 latency 4.2s → timeout",
     },
@@ -485,14 +516,26 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
     ],
     bugLines: [2],
     diagnosis: [
-      ["User input is interpolated straight into SQL, enabling injection", true],
+      [
+        "User input is interpolated straight into SQL, enabling injection",
+        true,
+      ],
       ["SELECT * is slower than selecting columns", false],
       ["The query is missing a LIMIT clause", false],
     ],
     fixes: [
-      ["  const rows = await db.query('SELECT * FROM users WHERE name = $1', [name]);", true],
-      ["  const sql = `SELECT * FROM users WHERE name = '${escape(name)}'`;", false],
-      ["  const sql = \"SELECT * FROM users WHERE name = '\" + name + \"'\";", false],
+      [
+        "  const rows = await db.query('SELECT * FROM users WHERE name = $1', [name]);",
+        true,
+      ],
+      [
+        "  const sql = `SELECT * FROM users WHERE name = '${escape(name)}'`;",
+        false,
+      ],
+      [
+        '  const sql = "SELECT * FROM users WHERE name = \'" + name + "\'";',
+        false,
+      ],
     ],
     explanation:
       "Interpolating `name` into the query lets an attacker inject SQL (e.g. `' OR '1'='1`). Use a parameterized query so the driver escapes the value safely.",
@@ -561,12 +604,18 @@ export const JAVASCRIPT_CHALLENGES: Challenge[] = [
     ],
     bugLines: [5],
     diagnosis: [
-      ["The resize listener is never removed on unmount, leaking the node", true],
+      [
+        "The resize listener is never removed on unmount, leaking the node",
+        true,
+      ],
       ["layout(node) should run on every render", false],
       ["addEventListener needs a capture flag", false],
     ],
     fixes: [
-      ["    window.removeEventListener('resize', onResize); node.remove();", true],
+      [
+        "    window.removeEventListener('resize', onResize); node.remove();",
+        true,
+      ],
       ["    window.addEventListener('resize', null); node.remove();", false],
       ["    onResize = null; node.remove();", false],
     ],

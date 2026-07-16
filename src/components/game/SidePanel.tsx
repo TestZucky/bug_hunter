@@ -85,7 +85,8 @@ export function SidePanel() {
         <div
           className="rounded-2xl border p-3 transition-all"
           style={{
-            background: combo > 0 ? "rgba(99,102,241,0.1)" : "rgba(13,13,28,0.9)",
+            background:
+              combo > 0 ? "rgba(99,102,241,0.1)" : "rgba(13,13,28,0.9)",
             borderColor: combo > 0 ? "rgba(99,102,241,0.3)" : "var(--border)",
           }}
         >
@@ -117,7 +118,8 @@ export function SidePanel() {
             <span
               className="text-xs font-mono font-bold"
               style={{
-                color: health > 50 ? "#4ade80" : health > 25 ? "#fbbf24" : "#ef4444",
+                color:
+                  health > 50 ? "#4ade80" : health > 25 ? "#fbbf24" : "#ef4444",
               }}
             >
               {health}%
@@ -170,7 +172,10 @@ export function SidePanel() {
             <span className="text-base" aria-hidden>
               {rank.icon}
             </span>
-            <span className="text-xs font-semibold" style={{ color: rank.color }}>
+            <span
+              className="text-xs font-semibold"
+              style={{ color: rank.color }}
+            >
               {rank.name}
             </span>
           </span>

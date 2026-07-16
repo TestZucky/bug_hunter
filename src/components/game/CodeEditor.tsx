@@ -43,12 +43,13 @@ export function CodeEditor({
   // During diagnose/fix the confirmed correct line stays locked-in.
   const locked = status === "diagnosing" || status === "fixing";
 
-  const selectableIds = code.filter((l) => l.content.trim() !== "").map((l) => l.id);
+  const selectableIds = code
+    .filter((l) => l.content.trim() !== "")
+    .map((l) => l.id);
 
   function moveFocus(delta: number, currentId: string) {
     const idx = selectableIds.indexOf(currentId);
-    const nextIdx =
-      (idx + delta + selectableIds.length) % selectableIds.length;
+    const nextIdx = (idx + delta + selectableIds.length) % selectableIds.length;
     const nextId = selectableIds[nextIdx];
     const el = containerRef.current?.querySelector<HTMLButtonElement>(
       `[data-line-id="${nextId}"]`,
@@ -61,9 +62,7 @@ export function CodeEditor({
       className="flex-1 min-h-0 rounded-2xl border border-border overflow-hidden relative flex flex-col"
       style={{ background: "rgba(13,13,28,0.9)" }}
       key={`editor-${shakeKey}`}
-      animate={
-        shakeKey > 0 ? { x: [0, -8, 8, -6, 6, -3, 3, 0] } : { x: 0 }
-      }
+      animate={shakeKey > 0 ? { x: [0, -8, 8, -6, 6, -3, 3, 0] } : { x: 0 }}
       transition={{ duration: 0.5, ease: "easeInOut" }}
     >
       {/* Editor chrome */}
@@ -72,9 +71,18 @@ export function CodeEditor({
         style={{ background: "rgba(255,255,255,0.02)" }}
       >
         <div className="flex gap-1.5" aria-hidden>
-          <div className="w-3 h-3 rounded-full" style={{ background: "#ef4444" }} />
-          <div className="w-3 h-3 rounded-full" style={{ background: "#fbbf24" }} />
-          <div className="w-3 h-3 rounded-full" style={{ background: "#4ade80" }} />
+          <div
+            className="w-3 h-3 rounded-full"
+            style={{ background: "#ef4444" }}
+          />
+          <div
+            className="w-3 h-3 rounded-full"
+            style={{ background: "#fbbf24" }}
+          />
+          <div
+            className="w-3 h-3 rounded-full"
+            style={{ background: "#4ade80" }}
+          />
         </div>
         <div className="flex-1 flex justify-center min-w-0">
           <span className="text-xs text-muted-foreground font-mono truncate">
@@ -169,24 +177,39 @@ export function CodeEditor({
               {selectable && !empty && (
                 <span
                   className="opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity ml-2 text-xs px-1.5 py-0.5 rounded shrink-0"
-                  style={{ background: "rgba(99,102,241,0.2)", color: "#a78bfa" }}
+                  style={{
+                    background: "rgba(99,102,241,0.2)",
+                    color: "#a78bfa",
+                  }}
                 >
                   select
                 </span>
               )}
               {revealing && isBug && outcome === "correct" && (
-                <CheckCircle className="w-4 h-4 shrink-0 ml-2" style={{ color: "#4ade80" }} />
+                <CheckCircle
+                  className="w-4 h-4 shrink-0 ml-2"
+                  style={{ color: "#4ade80" }}
+                />
               )}
               {revealing && isWrongPick && (
-                <XCircle className="w-4 h-4 shrink-0 ml-2" style={{ color: "#ef4444" }} />
+                <XCircle
+                  className="w-4 h-4 shrink-0 ml-2"
+                  style={{ color: "#ef4444" }}
+                />
               )}
               {revealing && isBug && outcome !== "correct" && (
-                <span className="text-xs shrink-0 ml-2" style={{ color: "#fbbf24" }}>
+                <span
+                  className="text-xs shrink-0 ml-2"
+                  style={{ color: "#fbbf24" }}
+                >
                   ← bug here
                 </span>
               )}
               {locked && isSelected && (
-                <CheckCircle className="w-4 h-4 shrink-0 ml-2" style={{ color: "#4ade80" }} />
+                <CheckCircle
+                  className="w-4 h-4 shrink-0 ml-2"
+                  style={{ color: "#4ade80" }}
+                />
               )}
             </button>
           );

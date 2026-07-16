@@ -62,8 +62,8 @@ export function RoundResult({ onNext }: { onNext: () => void }) {
                 {correct
                   ? "Bug squashed — " + result.bugLabel
                   : timeout
-                  ? "Time's up — " + result.bugLabel
-                  : "Missed it — " + result.bugLabel}
+                    ? "Time's up — " + result.bugLabel
+                    : "Missed it — " + result.bugLabel}
               </span>
               <span
                 className="px-1.5 py-0.5 rounded text-xs font-medium"
@@ -77,9 +77,13 @@ export function RoundResult({ onNext }: { onNext: () => void }) {
               {correct && (
                 <span
                   className="px-2 py-0.5 rounded-full text-xs font-bold"
-                  style={{ background: "rgba(74,222,128,0.2)", color: "#4ade80" }}
+                  style={{
+                    background: "rgba(74,222,128,0.2)",
+                    color: "#4ade80",
+                  }}
                 >
-                  +{result.xpAwarded} XP · +{result.scoreAwarded.toLocaleString()}
+                  +{result.xpAwarded} XP · +
+                  {result.scoreAwarded.toLocaleString()}
                 </span>
               )}
             </div>
@@ -96,11 +100,13 @@ export function RoundResult({ onNext }: { onNext: () => void }) {
                 className="text-xs px-2 py-0.5 rounded font-mono break-all"
                 style={{ background: "rgba(255,255,255,0.06)" }}
               >
-                {tokenize(result.correctFixCode, challenge.language).map((tok, j) => (
-                  <span key={j} style={{ color: TOKEN_COLORS[tok.k] }}>
-                    {tok.t}
-                  </span>
-                ))}
+                {tokenize(result.correctFixCode, challenge.language).map(
+                  (tok, j) => (
+                    <span key={j} style={{ color: TOKEN_COLORS[tok.k] }}>
+                      {tok.t}
+                    </span>
+                  ),
+                )}
               </code>
             </div>
 
@@ -130,7 +136,10 @@ export function RoundResult({ onNext }: { onNext: () => void }) {
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {impact.description}
               </p>
-              <p className="text-xs mt-1 font-mono" style={{ color: "#f97316" }}>
+              <p
+                className="text-xs mt-1 font-mono"
+                style={{ color: "#f97316" }}
+              >
                 {impact.metric}
               </p>
             </div>

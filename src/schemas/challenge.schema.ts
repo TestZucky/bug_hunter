@@ -138,7 +138,9 @@ export function validateChallenges(raw: unknown[]): ValidatedChallenge[] {
     const result = challengeSchema.safeParse(c);
     if (!result.success) {
       const id =
-        c && typeof c === "object" && "id" in c ? (c as { id: string }).id : `#${i}`;
+        c && typeof c === "object" && "id" in c
+          ? (c as { id: string }).id
+          : `#${i}`;
       throw new Error(
         `Invalid challenge "${id}":\n${result.error.issues
           .map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)

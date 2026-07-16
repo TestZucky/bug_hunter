@@ -32,7 +32,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`}>
+    <html
+      lang="en"
+      className={`dark ${inter.variable} ${jetbrainsMono.variable}`}
+    >
       {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
           attributes on <body> before React hydrates. */}
       <body suppressHydrationWarning>{children}</body>

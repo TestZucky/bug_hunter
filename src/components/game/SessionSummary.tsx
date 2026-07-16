@@ -47,7 +47,11 @@ export function SessionSummary({ onPlayAgain }: { onPlayAgain: () => void }) {
   }
 
   const stats = [
-    { label: "Score", value: summary.finalScore.toLocaleString(), icon: Target },
+    {
+      label: "Score",
+      value: summary.finalScore.toLocaleString(),
+      icon: Target,
+    },
     { label: "XP Earned", value: `+${summary.xpEarned}`, icon: Zap },
     { label: "Accuracy", value: `${summary.accuracy}%`, icon: TrendingUp },
     { label: "Max Combo", value: `${summary.maxCombo}×`, icon: Award },
@@ -60,7 +64,10 @@ export function SessionSummary({ onPlayAgain }: { onPlayAgain: () => void }) {
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: "spring", stiffness: 200, damping: 22 }}
         className="w-full max-w-md rounded-3xl border border-border p-6 sm:p-8 text-center"
-        style={{ background: "#0d0d1c", boxShadow: "0 32px 80px rgba(0,0,0,0.6)" }}
+        style={{
+          background: "#0d0d1c",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.6)",
+        }}
       >
         <div className="text-5xl mb-3" aria-hidden>
           {summary.accuracy >= 80 ? "🏆" : summary.accuracy >= 50 ? "🎯" : "💀"}
@@ -69,8 +76,8 @@ export function SessionSummary({ onPlayAgain }: { onPlayAgain: () => void }) {
           {summary.systemHealth <= 0
             ? "System Down"
             : summary.accuracy >= 80
-            ? "Production Secured"
-            : "Session Complete"}
+              ? "Production Secured"
+              : "Session Complete"}
         </h1>
         <p className="text-sm text-muted-foreground mb-6">
           {summary.correctRounds}/{summary.totalRounds} rounds cleared
@@ -101,7 +108,10 @@ export function SessionSummary({ onPlayAgain }: { onPlayAgain: () => void }) {
               border: "1px solid rgba(99,102,241,0.3)",
             }}
           >
-            <Crown className="w-4 h-4" style={{ color: outcome.rankAfter.color }} />
+            <Crown
+              className="w-4 h-4"
+              style={{ color: outcome.rankAfter.color }}
+            />
             <span className="text-sm font-semibold">
               Ranked up to{" "}
               <span style={{ color: outcome.rankAfter.color }}>

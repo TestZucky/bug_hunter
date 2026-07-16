@@ -25,7 +25,12 @@ interface RawChallenge {
   /** [code, isCorrect] — exactly one correct. */
   fixes: [string, boolean][];
   explanation: string;
-  impact: { title: string; description: string; severity: Severity; metric: string };
+  impact: {
+    title: string;
+    description: string;
+    severity: Severity;
+    metric: string;
+  };
   tags: string[];
   /** Optional overrides for scoring defaults. */
   baseScore?: number;

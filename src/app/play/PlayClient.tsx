@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { SimpleGame } from "@/components/game/SimpleGame";
 import type { Language } from "@/types/challenge";
 
@@ -11,8 +12,12 @@ export function PlayClient() {
     langParam === "python"
       ? "python"
       : langParam === "javascript"
-      ? "javascript"
-      : "mixed";
+        ? "javascript"
+        : "mixed";
 
-  return <SimpleGame language={language} key={language} />;
+  return (
+    <ErrorBoundary>
+      <SimpleGame language={language} key={language} />
+    </ErrorBoundary>
+  );
 }

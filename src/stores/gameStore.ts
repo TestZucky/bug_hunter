@@ -432,7 +432,8 @@ function resolveRound(
     newCombo = 0;
     if (!practice) {
       if (outcome === "timeout") healthDelta = HEALTH.timeout;
-      else if (SECURITY_BUGS.has(c.bugType)) healthDelta = HEALTH.securityMissed;
+      else if (SECURITY_BUGS.has(c.bugType))
+        healthDelta = HEALTH.securityMissed;
       else healthDelta = HEALTH.incorrect;
     }
   }

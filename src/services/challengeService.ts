@@ -73,7 +73,11 @@ export interface SelectionQuery {
 function matches(c: Challenge, q: SelectionQuery): boolean {
   if (q.language && q.language !== "mixed" && c.language !== q.language)
     return false;
-  if (q.difficulty && q.difficulty !== "adaptive" && c.difficulty !== q.difficulty)
+  if (
+    q.difficulty &&
+    q.difficulty !== "adaptive" &&
+    c.difficulty !== q.difficulty
+  )
     return false;
   if (q.category && q.category !== "any" && c.category !== q.category)
     return false;
@@ -134,8 +138,7 @@ export function buildClassicRun(
     const extra = seededShuffle(
       CHALLENGES.filter(
         (c) =>
-          !seen.has(c.id) &&
-          (language === "mixed" || c.language === language),
+          !seen.has(c.id) && (language === "mixed" || c.language === language),
       ),
       s + "x",
     );

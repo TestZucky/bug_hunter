@@ -32,22 +32,84 @@ import OpenAI from "openai";
 import { challengeSchema } from "../src/schemas/challenge.schema";
 // The existing challenge bank, for cross-bank dedup (tsx resolves the @/ alias).
 import { CHALLENGES } from "@/content/challenges";
+import { describeError, logger } from "@/lib/logger";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Retry a network call on rate limits / 5xx / transport errors with backoff. */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  attempts = 4,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const status = (err as { status?: number })?.status;
+      const retryable =
+        status === undefined ||
+        status === 429 ||
+        (status >= 500 && status < 600);
+      if (!retryable || i === attempts - 1) break;
+      const delay = Math.min(1000 * 2 ** i, 8000);
+      logger.warn(`${label} failed — retrying in ${delay}ms`, {
+        attempt: `${i + 1}/${attempts}`,
+        ...describeError(err),
+      });
+      await sleep(delay);
+    }
+  }
+  throw lastErr;
+}
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
 const CATEGORIES = [
-  "syntax", "variables", "conditions", "loops", "arrays", "functions",
-  "null_handling", "async", "api", "sql", "security", "react", "state",
-  "performance", "error_handling", "testing",
+  "syntax",
+  "variables",
+  "conditions",
+  "loops",
+  "arrays",
+  "functions",
+  "null_handling",
+  "async",
+  "api",
+  "sql",
+  "security",
+  "react",
+  "state",
+  "performance",
+  "error_handling",
+  "testing",
 ] as const;
 
 const BUG_TYPES = [
-  "syntax_error", "off_by_one", "null_reference", "undefined_access",
-  "wrong_condition", "infinite_loop", "missing_return", "incorrect_mutation",
-  "missing_await", "unhandled_promise", "race_condition", "sql_injection",
-  "xss", "authentication_error", "authorization_error", "memory_leak",
-  "performance_issue", "incorrect_query", "wrong_http_method",
-  "wrong_status_code", "stale_state", "resource_leak", "type_mismatch",
+  "syntax_error",
+  "off_by_one",
+  "null_reference",
+  "undefined_access",
+  "wrong_condition",
+  "infinite_loop",
+  "missing_return",
+  "incorrect_mutation",
+  "missing_await",
+  "unhandled_promise",
+  "race_condition",
+  "sql_injection",
+  "xss",
+  "authentication_error",
+  "authorization_error",
+  "memory_leak",
+  "performance_issue",
+  "incorrect_query",
+  "wrong_http_method",
+  "wrong_status_code",
+  "stale_state",
+  "resource_leak",
+  "type_mismatch",
   "loose_equality",
 ] as const;
 
@@ -75,7 +137,8 @@ const candidateSchema = {
     code: {
       type: "array",
       items: { type: "string" },
-      description: "5-16 source lines, indentation preserved, exactly one real bug",
+      description:
+        "5-16 source lines, indentation preserved, exactly one real bug",
     },
     bugLines: {
       type: "array",
@@ -84,7 +147,8 @@ const candidateSchema = {
     },
     diagnosis: {
       type: "array",
-      description: "3-4 options; EXACTLY ONE isCorrect:true; distractors clearly wrong",
+      description:
+        "3-4 options; EXACTLY ONE isCorrect:true; distractors clearly wrong",
       items: {
         type: "object",
         additionalProperties: false,
@@ -97,7 +161,8 @@ const candidateSchema = {
     },
     fixes: {
       type: "array",
-      description: "2-3 options; EXACTLY ONE isCorrect:true; the correct one actually fixes it",
+      description:
+        "2-3 options; EXACTLY ONE isCorrect:true; the correct one actually fixes it",
       items: {
         type: "object",
         additionalProperties: false,
@@ -115,16 +180,34 @@ const candidateSchema = {
       properties: {
         title: { type: "string" },
         description: { type: "string" },
-        severity: { type: "string", enum: ["low", "medium", "high", "critical"] },
-        metric: { type: "string", description: "punchy production consequence, e.g. '3,450 failed requests'" },
+        severity: {
+          type: "string",
+          enum: ["low", "medium", "high", "critical"],
+        },
+        metric: {
+          type: "string",
+          description:
+            "punchy production consequence, e.g. '3,450 failed requests'",
+        },
       },
       required: ["title", "description", "severity", "metric"],
     },
     tags: { type: "array", items: { type: "string" } },
   },
   required: [
-    "id", "title", "filename", "difficulty", "category", "bugType", "code",
-    "bugLines", "diagnosis", "fixes", "explanation", "impact", "tags",
+    "id",
+    "title",
+    "filename",
+    "difficulty",
+    "category",
+    "bugType",
+    "code",
+    "bugLines",
+    "diagnosis",
+    "fixes",
+    "explanation",
+    "impact",
+    "tags",
   ],
 } as const;
 
@@ -149,8 +232,13 @@ const verdictSchema = {
     issues: { type: "array", items: { type: "string" } },
   },
   required: [
-    "approved", "confidence", "isRealBug", "flaggedLineIsTheBug",
-    "exactlyOneCorrectDiagnosis", "fixActuallyFixes", "distractorsClearlyWrong",
+    "approved",
+    "confidence",
+    "isRealBug",
+    "flaggedLineIsTheBug",
+    "exactlyOneCorrectDiagnosis",
+    "fixActuallyFixes",
+    "distractorsClearlyWrong",
     "issues",
   ],
 } as const;
@@ -169,7 +257,12 @@ interface Candidate {
   diagnosis: { label: string; isCorrect: boolean }[];
   fixes: { code: string; isCorrect: boolean }[];
   explanation: string;
-  impact: { title: string; description: string; severity: string; metric: string };
+  impact: {
+    title: string;
+    description: string;
+    severity: string;
+    metric: string;
+  };
   tags: string[];
 }
 
@@ -235,21 +328,25 @@ async function callJSON<T>(
   schemaName: string,
   schema: object,
 ): Promise<T> {
-  const res = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: schemaName,
-        strict: true,
-        schema: schema as Record<string, unknown>,
-      },
-    },
-  });
+  const res = await withRetry(
+    () =>
+      client.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: schemaName,
+            strict: true,
+            schema: schema as Record<string, unknown>,
+          },
+        },
+      }),
+    `chat.completions(${schemaName})`,
+  );
   const content = res.choices[0]?.message?.content;
   if (!content) throw new Error("Empty response from OpenAI");
   return JSON.parse(content) as T;
@@ -281,7 +378,8 @@ async function verify(
     client,
     model,
     verifyPrompt(),
-    "Review this challenge (answers included):\n\n" + JSON.stringify(full, null, 2),
+    "Review this challenge (answers included):\n\n" +
+      JSON.stringify(full, null, 2),
     "verdict",
     verdictSchema,
   );
@@ -292,7 +390,8 @@ async function verify(
 function toChallenge(c: Candidate, language: Language, idx: number) {
   const d = DIFFICULTY_DEFAULTS[c.difficulty];
   return {
-    id: c.id || `${language === "python" ? "py" : "js"}-gen-${c.bugType}-${idx}`,
+    id:
+      c.id || `${language === "python" ? "py" : "js"}-gen-${c.bugType}-${idx}`,
     title: c.title,
     filename: c.filename,
     language,
@@ -331,7 +430,9 @@ function normTitle(t: string): string {
 
 /** Hashes + titles of the challenges already in the bank, for cross-bank dedup. */
 function existingFingerprints() {
-  const codeHashes = new Set(CHALLENGES.map((c) => codeHash(c.code.map((l) => l.content))));
+  const codeHashes = new Set(
+    CHALLENGES.map((c) => codeHash(c.code.map((l) => l.content))),
+  );
   const titles = new Set(CHALLENGES.map((c) => normTitle(c.title)));
   return { codeHashes, titles };
 }
@@ -352,7 +453,10 @@ async function embedTexts(
   texts: string[],
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
-  const res = await client.embeddings.create({ model, input: texts });
+  const res = await withRetry(
+    () => client.embeddings.create({ model, input: texts }),
+    "embeddings.create",
+  );
   return res.data
     .slice()
     .sort((a, b) => a.index - b.index)
@@ -401,8 +505,12 @@ async function main() {
 
   if (!process.env.OPENAI_API_KEY) {
     console.error(C.red("OPENAI_API_KEY is not set."));
-    console.error(C.dim("  Local:  create a .env file with  OPENAI_API_KEY=sk-..."));
-    console.error(C.dim("  Or:     export OPENAI_API_KEY=sk-...  in your shell"));
+    console.error(
+      C.dim("  Local:  create a .env file with  OPENAI_API_KEY=sk-..."),
+    );
+    console.error(
+      C.dim("  Or:     export OPENAI_API_KEY=sk-...  in your shell"),
+    );
     process.exit(1);
   }
 
@@ -415,7 +523,9 @@ async function main() {
 
   console.log(
     C.bold(`\nBug Hunter — generate & verify`) +
-      C.dim(`  (${language}, ${count} candidates, gen=${genModel}, verify=${verifyModel})\n`),
+      C.dim(
+        `  (${language}, ${count} candidates, gen=${genModel}, verify=${verifyModel})\n`,
+      ),
   );
 
   // 1. Generate
@@ -424,7 +534,7 @@ async function main() {
   try {
     candidates = await generate(client, genModel, language, count);
   } catch (err) {
-    console.error(C.red("Generation failed:"), (err as Error).message);
+    logger.error("Generation failed", describeError(err));
     process.exit(1);
   }
   console.log(C.dim(`  got ${candidates.length}`));
@@ -432,8 +542,15 @@ async function main() {
   // 2. Structural validation + 3. dedup (within the batch AND against the existing bank)
   const seen = new Set<string>();
   const existing = existingFingerprints();
-  console.log(C.dim(`  cross-bank dedup against ${CHALLENGES.length} existing challenges`));
-  const structurallyValid: { full: ReturnType<typeof toChallenge>; cand: Candidate }[] = [];
+  console.log(
+    C.dim(
+      `  cross-bank dedup against ${CHALLENGES.length} existing challenges`,
+    ),
+  );
+  const structurallyValid: {
+    full: ReturnType<typeof toChallenge>;
+    cand: Candidate;
+  }[] = [];
   const rejected: { id: string; stage: string; reasons: string[] }[] = [];
 
   candidates.forEach((cand, i) => {
@@ -443,13 +560,18 @@ async function main() {
       rejected.push({
         id: full.id,
         stage: "schema",
-        reasons: parsed.error.issues.map((x) => `${x.path.join(".")}: ${x.message}`),
+        reasons: parsed.error.issues.map(
+          (x) => `${x.path.join(".")}: ${x.message}`,
+        ),
       });
       return;
     }
     const h = codeHash(cand.code);
     // Cross-bank: reject if the code or the title already exists in the app.
-    if (existing.codeHashes.has(h) || existing.titles.has(normTitle(cand.title))) {
+    if (
+      existing.codeHashes.has(h) ||
+      existing.titles.has(normTitle(cand.title))
+    ) {
       rejected.push({
         id: full.id,
         stage: "duplicate-bank",
@@ -459,7 +581,11 @@ async function main() {
     }
     // Within-batch dedup.
     if (seen.has(h)) {
-      rejected.push({ id: full.id, stage: "duplicate-batch", reasons: ["near-duplicate code in batch"] });
+      rejected.push({
+        id: full.id,
+        stage: "duplicate-batch",
+        reasons: ["near-duplicate code in batch"],
+      });
       return;
     }
     seen.add(h);
@@ -472,7 +598,9 @@ async function main() {
   const embedModel = process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
   if (structurallyValid.length > 0) {
     console.log(
-      C.dim(`→ embedding near-dup check (model=${embedModel}, threshold=${threshold})…`),
+      C.dim(
+        `→ embedding near-dup check (model=${embedModel}, threshold=${threshold})…`,
+      ),
     );
     try {
       const [existingEmb, candEmb] = await Promise.all([
@@ -480,14 +608,24 @@ async function main() {
           client,
           embedModel,
           CHALLENGES.map((c) =>
-            embedTextFor(c.code.map((l) => l.content), c.explanation, c.bugType, c.category),
+            embedTextFor(
+              c.code.map((l) => l.content),
+              c.explanation,
+              c.bugType,
+              c.category,
+            ),
           ),
         ),
         embedTexts(
           client,
           embedModel,
           structurallyValid.map(({ cand }) =>
-            embedTextFor(cand.code, cand.explanation, cand.bugType, cand.category),
+            embedTextFor(
+              cand.code,
+              cand.explanation,
+              cand.bugType,
+              cand.category,
+            ),
           ),
         ),
       ]);
@@ -512,16 +650,20 @@ async function main() {
             reasons: [`~${best.sim.toFixed(3)} cosine to ${best.id}`],
           });
         } else {
-          console.log(C.dim(`  ${s.full.id}: nearest ${best.id} @ ${best.sim.toFixed(3)}`));
+          console.log(
+            C.dim(
+              `  ${s.full.id}: nearest ${best.id} @ ${best.sim.toFixed(3)}`,
+            ),
+          );
           kept.push(s);
           keptEmb.push(emb);
         }
       });
       toVerify = kept;
     } catch (err) {
-      console.log(
-        C.yellow(`  embedding check skipped (${(err as Error).message}) — using hash dedup only`),
-      );
+      logger.warn("Embedding near-dup check skipped — using hash dedup only", {
+        ...describeError(err),
+      });
     }
   }
 
@@ -538,7 +680,7 @@ async function main() {
           verdict: {
             approved: false,
             confidence: "low",
-            issues: ["verification call failed: " + (err as Error).message],
+            issues: ["verification call failed: " + describeError(err).message],
           } as Verdict,
         };
       }
@@ -551,7 +693,9 @@ async function main() {
       rejected.push({
         id: v.full.id,
         stage: "verify",
-        reasons: v.verdict.issues.length ? v.verdict.issues : ["rejected by verifier"],
+        reasons: v.verdict.issues.length
+          ? v.verdict.issues
+          : ["rejected by verifier"],
       });
     }
   }
@@ -562,13 +706,16 @@ async function main() {
     if (v.verdict.approved) {
       console.log(
         `  ${C.green("✓")} ${v.full.id} ` +
-          C.dim(`[${v.full.difficulty}/${v.full.bugType}] confidence=${v.verdict.confidence}`),
+          C.dim(
+            `[${v.full.difficulty}/${v.full.bugType}] confidence=${v.verdict.confidence}`,
+          ),
       );
     }
   }
   for (const r of rejected) {
     console.log(`  ${C.red("✗")} ${r.id} ${C.yellow(`(${r.stage})`)}`);
-    for (const reason of r.reasons.slice(0, 3)) console.log(C.dim(`      - ${reason}`));
+    for (const reason of r.reasons.slice(0, 3))
+      console.log(C.dim(`      - ${reason}`));
   }
 
   console.log(
@@ -586,15 +733,39 @@ async function main() {
     // Timestamp is fine in a normal Node script.
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const outFile = path.join(outDir, `challenges-${language}-${stamp}.json`);
-    writeFileSync(outFile, JSON.stringify(approved.map((v) => v.full), null, 2));
-    console.log(C.dim(`\nWrote approved challenges → ${path.relative(process.cwd(), outFile)}`));
-    console.log(C.dim("Review them, then paste into src/content/challenges/*.ts.\n"));
+    writeFileSync(
+      outFile,
+      JSON.stringify(
+        approved.map((v) => v.full),
+        null,
+        2,
+      ),
+    );
+    console.log(
+      C.dim(
+        `\nWrote approved challenges → ${path.relative(process.cwd(), outFile)}`,
+      ),
+    );
+    console.log(
+      C.dim("Review them, then paste into src/content/challenges/*.ts.\n"),
+    );
   } else {
-    console.log(C.dim("\nNothing approved this run — tighten the prompt or re-run.\n"));
+    console.log(
+      C.dim("\nNothing approved this run — tighten the prompt or re-run.\n"),
+    );
   }
 }
 
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection", describeError(reason));
+  process.exit(1);
+});
+process.on("uncaughtException", (err) => {
+  logger.error("Uncaught exception", describeError(err));
+  process.exit(1);
+});
+
 main().catch((err) => {
-  console.error(C.red("\nUnexpected error:"), err);
+  logger.error("Unexpected error", describeError(err));
   process.exit(1);
 });

@@ -1,10 +1,7 @@
 import { COMBO } from "./constants";
 
 /** Speed multiplier ~0.5–1.5 based on time remaining (TDD §11.7). */
-export function speedMultiplier(
-  remainingMs: number,
-  totalMs: number,
-): number {
+export function speedMultiplier(remainingMs: number, totalMs: number): number {
   if (totalMs <= 0) return 0.5;
   const frac = Math.max(0, Math.min(remainingMs / totalMs, 1));
   return 0.5 + frac;

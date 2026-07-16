@@ -38,7 +38,8 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       "Default arguments are evaluated once at definition time. The same list object is reused across calls, so `b` unexpectedly contains 'apple' too. Use None and create a fresh list inside the body.",
     impact: {
       title: "Data bleeding between requests",
-      description: "Shared default lists leaked one user's items into another's.",
+      description:
+        "Shared default lists leaked one user's items into another's.",
       severity: "high",
       metric: "Cross-user data in 220 carts",
     },
@@ -130,7 +131,10 @@ export const PYTHON_CHALLENGES: Challenge[] = [
     ],
     bugLines: [2],
     diagnosis: [
-      ["`is` compares identity, not value, and may fail for equal strings", true],
+      [
+        "`is` compares identity, not value, and may fail for equal strings",
+        true,
+      ],
       ["The function should return role directly", false],
       ["'admin' must be a bytes literal", false],
     ],
@@ -143,7 +147,8 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       "`is` checks whether two references point to the same object. String interning makes it seem to work sometimes, but it can return False for equal strings built at runtime. Use == for value comparison.",
     impact: {
       title: "Flaky access checks",
-      description: "Admin checks intermittently failed depending on how the role string was built.",
+      description:
+        "Admin checks intermittently failed depending on how the role string was built.",
       severity: "medium",
       metric: "Sporadic 403s for admins",
     },
@@ -178,7 +183,8 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       "// is floor division, so average(7, 2) returns 3 instead of 3.5. Use / for a true (float) average.",
     impact: {
       title: "Wrong metrics",
-      description: "Reported averages were always rounded down, skewing dashboards.",
+      description:
+        "Reported averages were always rounded down, skewing dashboards.",
       severity: "low",
       metric: "Analytics off by up to 1 unit",
     },
@@ -215,7 +221,8 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       "config['timeout'] raises KeyError when the key is absent. dict.get with a default returns a safe fallback instead of crashing.",
     impact: {
       title: "Crash on partial config",
-      description: "Any config missing 'timeout' took down the worker on startup.",
+      description:
+        "Any config missing 'timeout' took down the worker on startup.",
       severity: "medium",
       metric: "Boot loop on 3 hosts",
     },
@@ -250,7 +257,8 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       "Without await, fetch() returns a coroutine object rather than the fetched data. save() then persists the coroutine, and the request never actually runs.",
     impact: {
       title: "Jobs silently no-op",
-      description: "Coroutines were saved instead of results; nothing was fetched.",
+      description:
+        "Coroutines were saved instead of results; nothing was fetched.",
       severity: "high",
       metric: "9,000 jobs processed empty",
     },
@@ -275,7 +283,10 @@ export const PYTHON_CHALLENGES: Challenge[] = [
     ],
     bugLines: [4],
     diagnosis: [
-      ["The lambda captures i by reference, so all return the final value", true],
+      [
+        "The lambda captures i by reference, so all return the final value",
+        true,
+      ],
       ["range(3) should be range(1, 3)", false],
       ["handlers should be a dict", false],
     ],
@@ -315,8 +326,14 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       ["The query needs a semicolon", false],
     ],
     fixes: [
-      ["    cursor.execute('SELECT * FROM users WHERE name = %s', (username,))", true],
-      ["    query = \"SELECT * FROM users WHERE name = '\" + username + \"'\"", false],
+      [
+        "    cursor.execute('SELECT * FROM users WHERE name = %s', (username,))",
+        true,
+      ],
+      [
+        '    query = "SELECT * FROM users WHERE name = \'" + username + "\'"',
+        false,
+      ],
       ["    cursor.execute(query, username)", false],
     ],
     explanation:
@@ -384,7 +401,10 @@ export const PYTHON_CHALLENGES: Challenge[] = [
     ],
     bugLines: [2],
     diagnosis: [
-      ["Read-then-write without a lock lets concurrent withdrawals double-spend", true],
+      [
+        "Read-then-write without a lock lets concurrent withdrawals double-spend",
+        true,
+      ],
       ["balance should be compared with >", false],
       ["set_balance should take the amount, not the new balance", false],
     ],
@@ -433,7 +453,8 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       "Floats can't represent values like 0.1 exactly, so summing prices drifts by fractions of a cent and round() can land on the wrong integer. Use decimal.Decimal for currency.",
     impact: {
       title: "Invoice totals off by a cent",
-      description: "Float rounding produced invoices that failed reconciliation.",
+      description:
+        "Float rounding produced invoices that failed reconciliation.",
       severity: "high",
       metric: "Ledger mismatch flagged by finance",
     },
@@ -470,7 +491,8 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       "Calling .get() inside the loop issues a separate query per id. Fetch them all with a single filter(id__in=...) and iterate the result set.",
     impact: {
       title: "Database saturation",
-      description: "A 1,000-order report fired 1,000 queries and pinned the DB.",
+      description:
+        "A 1,000-order report fired 1,000 queries and pinned the DB.",
       severity: "high",
       metric: "DB CPU at 100% during reports",
     },
@@ -493,7 +515,10 @@ export const PYTHON_CHALLENGES: Challenge[] = [
     ],
     bugLines: [4],
     diagnosis: [
-      ["A bare except swallows every error, including KeyboardInterrupt and bugs", true],
+      [
+        "A bare except swallows every error, including KeyboardInterrupt and bugs",
+        true,
+      ],
       ["step.execute() should be awaited", false],
       ["return None should be return False", false],
     ],
@@ -506,7 +531,8 @@ export const PYTHON_CHALLENGES: Challenge[] = [
       "A bare `except:` catches everything — including SystemExit and KeyboardInterrupt — and silently returns None, hiding real failures. Catch Exception (or a specific type) and log it.",
     impact: {
       title: "Invisible failures",
-      description: "Broken pipeline steps returned None and were treated as success.",
+      description:
+        "Broken pipeline steps returned None and were treated as success.",
       severity: "high",
       metric: "Corrupt output shipped for days",
     },

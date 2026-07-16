@@ -19,7 +19,10 @@ export interface RunOptions {
   category?: string;
 }
 
-function buildQueue(opts: RunOptions, seen: string[]): { queue: Challenge[]; config: SessionConfig } {
+function buildQueue(
+  opts: RunOptions,
+  seen: string[],
+): { queue: Challenge[]; config: SessionConfig } {
   const { mode, language } = opts;
 
   if (mode === "daily") {

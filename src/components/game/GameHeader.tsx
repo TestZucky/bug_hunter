@@ -63,7 +63,9 @@ export function GameHeader({ modeLabel }: { modeLabel?: string }) {
           >
             {rank.name}
           </span>
-          <span className="text-xs text-muted-foreground hidden sm:inline">·</span>
+          <span className="text-xs text-muted-foreground hidden sm:inline">
+            ·
+          </span>
           <span className="text-xs font-mono text-muted-foreground">
             {xp.toLocaleString()} XP
           </span>
