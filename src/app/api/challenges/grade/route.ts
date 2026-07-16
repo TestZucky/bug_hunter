@@ -7,14 +7,15 @@ import {
   isDiagnosisCorrect,
   isFixCorrect,
 } from "@/services/challengeService";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { describeError, logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
-  challengeId: z.string().min(1),
+  challengeId: z.string().min(1).max(128),
   kind: z.enum(["line", "diagnosis", "fix", "forfeit"]),
-  selectedId: z.string().nullable(),
+  selectedId: z.string().max(128).nullable(),
 });
 
 /**
@@ -23,6 +24,10 @@ const bodySchema = z.object({
  * which is the same explanation the game shows after every round) is returned.
  */
 export async function POST(req: NextRequest) {
+  // Throttle grading — this is the endpoint a scraper would hammer.
+  const limited = enforceRateLimit(req, "grade", 300, 60_000);
+  if (limited) return limited;
+
   let parsed;
   try {
     parsed = bodySchema.safeParse(await req.json());
