@@ -7,7 +7,7 @@ SHELL := /bin/bash
 .PHONY: help install setup dev build start \
         db-up db-down migrate seed db-reset \
         lint format format-check typecheck test check \
-        gen clean deploy
+        gen tunnel gen-prod drafts show publish unpublish clean deploy
 
 help: ## List available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -68,9 +68,56 @@ test: ## Run tests once
 check: lint format-check typecheck test build ## Run the full CI gauntlet locally
 	@echo "All checks passed."
 
-# ── Content pipeline ─────────────────────────────────────────────────
+# ── Content pipeline (local DB) ──────────────────────────────────────
 gen: ## Generate + verify challenges (LANG=javascript N=8 [DB=1])
 	npm run gen:challenges -- $(or $(LANG),javascript) $(or $(N),8) $(if $(DB),--write-db,)
+
+# ── Content pipeline (production, via SSH tunnel to the VM) ──────────
+# The prod DB has no public address, so every target below needs `make tunnel`
+# running in another terminal. Generated challenges land as DRAFTS: they are
+# invisible to players until `make publish` promotes them. Review first — the
+# verify pass has approved challenges whose "correct" fix broke the code.
+VM          ?= bug-hunter-db
+ZONE        ?= us-central1-a
+TUNNEL_PORT ?= 55432
+
+# Reads the prod DATABASE_URL off the Cloud Run service and rewrites its host to
+# the local tunnel. Kept in one place and never echoed — it carries the password.
+GET_DB_URL = gcloud run services describe $(or $(SERVICE),bug-hunter) --region $(or $(REGION),us-central1) --format=json \
+	| node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const e=JSON.parse(s).spec.template.spec.containers[0].env||[];const v=(e.find(x=>x.name==="DATABASE_URL")||{}).value||"";if(!v){console.error("No DATABASE_URL on the Cloud Run service");process.exit(1)}process.stdout.write(v.replace(/@[^\/]+\//,"@localhost:$(TUNNEL_PORT)/"))})'
+
+# Fails early with a useful message instead of silently hitting the local DB.
+define require_tunnel
+@nc -z localhost $(TUNNEL_PORT) >/dev/null 2>&1 || { \
+	echo "No tunnel on localhost:$(TUNNEL_PORT). Run 'make tunnel' in another terminal."; exit 1; }
+endef
+
+tunnel: ## Open an SSH tunnel to the prod DB (leave running; Ctrl-C to stop)
+	@echo "Tunnel: localhost:$(TUNNEL_PORT) -> $(VM):5432. Leave this running; Ctrl-C to stop."
+	gcloud compute ssh $(VM) --zone=$(ZONE) -- -L $(TUNNEL_PORT):localhost:5432 -N
+
+gen-prod: ## Generate challenges as DRAFTS in prod (LANG=python N=8; needs `make tunnel`)
+	$(require_tunnel)
+	@DATABASE_URL="$$($(GET_DB_URL))" npm run gen:challenges -- $(or $(LANG),python) $(or $(N),8) --write-db
+
+drafts: ## List prod challenges awaiting review (needs `make tunnel`)
+	$(require_tunnel)
+	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- drafts
+
+show: ## Print one challenge in full, answers included (ID=some-id; needs `make tunnel`)
+	@test -n "$(ID)" || { echo "Usage: make show ID=<challenge-id>"; exit 1; }
+	$(require_tunnel)
+	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- show $(ID)
+
+publish: ## Publish a reviewed draft — goes live instantly (ID=some-id; needs `make tunnel`)
+	@test -n "$(ID)" || { echo "Usage: make publish ID=<challenge-id>"; exit 1; }
+	$(require_tunnel)
+	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- publish $(ID)
+
+unpublish: ## Pull a challenge back out of the game (ID=some-id; needs `make tunnel`)
+	@test -n "$(ID)" || { echo "Usage: make unpublish ID=<challenge-id>"; exit 1; }
+	$(require_tunnel)
+	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- unpublish $(ID)
 
 clean: ## Remove build artifacts
 	rm -rf .next

@@ -198,18 +198,35 @@ flowchart LR
     Hash --> Embed["semantic dedup (embeddings)"]
     Embed --> Verify["adversarial verify"]
     Verify --> Gate{approved?}
-    Gate -->|yes| Out["generated/*.json<br/>(+ DB with --write-db)"]
+    Gate -->|yes| Out["generated/*.json<br/>(+ DB drafts with --write-db)"]
     Gate -->|no| Drop["reject + log reason"]
 ```
 
 ```bash
 npm run gen:challenges -- javascript 8              # writes generated/*.json for review
-npm run gen:challenges -- javascript 8 --write-db   # also upserts approved into Postgres
+npm run gen:challenges -- javascript 8 --write-db   # also upserts approved as DRAFTS
 ```
 
-Dedup (hash + embeddings) runs against the **live DB bank**. The nightly Action
-(`.github/workflows/generate-challenges.yml`) generates for both languages and
-opens a PR; set a hosted `DATABASE_URL` secret to enable DB dedup/writes.
+Dedup (hash + embeddings) runs against the **live DB bank**, so `DATABASE_URL`
+must point at the bank you actually publish from — otherwise dedup silently
+degrades to batch-only.
+
+**Generated challenges are never published automatically.** `--write-db` writes
+`status='draft'`, which `getPool` excludes, so drafts are invisible to players.
+Review them, then promote:
+
+```sql
+UPDATE challenges SET status='published' WHERE id IN ('...');
+```
+
+This is deliberate. The adversarial verify pass is useful but fallible — it has
+approved challenges whose "correct" fix provably breaks the code. A human reads
+the draft before players do.
+
+Answers (`bugLineIds`, `isCorrect`, `explanation`) live only in the database and
+in git-ignored files. `/generated` and `/seed` are in `.gitignore` and must stay
+there: this repo is public, and committing either would publish the answer key.
+That is why there is no PR-based review flow for generated content.
 
 ---
 
