@@ -15,15 +15,23 @@ verify** pipeline.
 ## Quick start
 
 ```bash
-npm install
 cp .env.example .env          # set DATABASE_URL (+ OPENAI_API_KEY for the pipeline)
+make setup                    # install + start Postgres + migrate + seed
+make dev                      # http://localhost:3000  (best on a phone / narrow)
+```
 
+Prefer raw commands? The equivalent without `make`:
+
+```bash
+npm install
 docker compose up -d db       # start Postgres (or use your own)
 npm run db:migrate            # create the schema
 npm run db:seed               # load seed/challenges.json into the DB (git-ignored)
-
-npm run dev                   # http://localhost:3000  (best on a phone / narrow)
+npm run dev
 ```
+
+Run `make help` to list all shortcuts (`make check` runs the full CI gauntlet
+locally; `make db-reset` rebuilds the database).
 
 > **Where do the questions come from?** They are **not in the repo.** A baseline
 > lives in a git-ignored `seed/challenges.json`; `db:seed` loads it, and the
