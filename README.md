@@ -92,14 +92,14 @@ flowchart TD
         Play --> Boundary["ErrorBoundary + logger"]
     end
 
-    Store -- "GET /api/challenges/session" --> ApiS["session route"]
-    Store -- "POST /api/challenges/grade" --> ApiG["grade route"]
+    Store -- "POST /session (create)" --> ApiS["session route"]
+    Store -- "POST /grade (per tap)" --> ApiG["grade route"]
 
     subgraph server [Next.js server]
-        ApiS --> Repo["challenges.repo (Drizzle)"]
-        ApiG --> Repo
-        ApiS --> Pub["toPublicChallenge<br/>(strip answers)"]
-        ApiG --> Grade["grade + reveal on resolve"]
+        ApiS --> Sess["gameSession<br/>(server round/stage state)"]
+        ApiG --> Sess
+        Sess --> Repo["challenges.repo (Drizzle)"]
+        Sess --> KV[("KV: in-memory / Redis<br/>sessions + rate limits")]
     end
 
     Repo --> DB[(PostgreSQL<br/>challenges.payload jsonb)]
@@ -113,16 +113,16 @@ flowchart TD
 ```text
 src/
   app/
-    api/challenges/session   GET  → answer-stripped queue
-    api/challenges/grade     POST → server-side grading + reveal
+    api/challenges/session   POST → create session, answer-stripped queue
+    api/challenges/grade     POST → server-graded within the session
     / (start) · /play · /profile · error/global-error/not-found
   components/game/           SimpleGame, Confetti
   components/common/         ErrorBoundary, PageHeader
   db/                        schema.ts (Drizzle), index.ts (client), challenges.repo.ts
   stores/                    gameStore (async, server-graded), userStore, settingsStore
-  services/                  challengeService (pure: project/grade/select), gameApi (client fetch)
+  services/                  challengeService (pure), gameSession (server anti-cheat), gameApi (client)
   hooks/                     useTimer, useSound, useHydrated
-  lib/                       scoring, ranks, constants, logger (redaction), syntax, cn
+  lib/                       scoring, ranks, constants, logger, syntax, cn, kv (memory/redis), rate-limit
   schemas/                   Zod challenge schema
   types/                     shared TypeScript types (challenge, game)
   test/                      synthetic fixtures + local grader (unit tests, no DB)
@@ -178,9 +178,11 @@ opens a PR; set a hosted `DATABASE_URL` secret to enable DB dedup/writes.
 
 - **Answer safety** — questions/answers are in Postgres only; the client gets a
   stripped projection and every guess is graded server-side.
-- **Abuse protection** — per-IP rate limiting on the API (`session` 30/min,
-  `grade` 300/min → `429` with `Retry-After`). In-memory; back with Redis to scale
-  across instances.
+- **Abuse protection** — (a) **server-authoritative sessions**: the server owns
+  round/stage state, so a client gets exactly one answer per stage — a wrong guess
+  ends the round and can't be retried, which closes answer enumeration; (b) per-IP
+  **rate limiting** (`session` 30/min, `grade` 300/min → `429`). Both use a shared
+  store (Redis via `REDIS_URL`) or fall back to in-memory for a single instance.
 - **Security headers** — `next.config.mjs` sets CSP, HSTS, `X-Frame-Options: DENY`,
   `nosniff`, `Referrer-Policy`, `Permissions-Policy`, and drops `X-Powered-By`.
 - **SQL safety** — Drizzle parameterized queries only (no raw SQL); API inputs are
@@ -198,15 +200,14 @@ opens a PR; set a hosted `DATABASE_URL` secret to enable DB dedup/writes.
 - **Pre-commit hooks** (husky) — lint-staged + secret scan; pre-push typecheck +
   tests.
 - **CI** (`.github/workflows/ci.yml`) — on PR/push to `main`+`develop`: secret scan
-  → lint → format → typecheck → migrate → tests → build (with a Postgres service).
+  → dep audit → lint → format → typecheck → migrate → tests → build (with Postgres
+  - Redis services).
 
 ---
 
 ## Not in this phase
 
 Real accounts/auth and a networked leaderboard (progress is still local
-`localStorage`). Follow-ups for full hardening: **per-round anti-cheat** (server
-session state) — the grade endpoint is stateless, so answers are safe from the repo
-and bundle but a scripted client could still enumerate one challenge's options;
-**nonce-based CSP** (the current CSP allows `'unsafe-inline'` for the app's inline
-styles/scripts); and production **error monitoring** (e.g. Sentry).
+`localStorage`). Remaining hardening follow-ups: **nonce-based CSP** (the current
+CSP allows `'unsafe-inline'` for the app's inline styles/scripts) and production
+**error monitoring** (e.g. Sentry).
