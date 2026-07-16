@@ -178,6 +178,15 @@ set a **GCP budget alert**. Optional upgrades later: Secret Manager instead of a
 env var (`--set-secrets`), and Upstash Redis (`REDIS_URL`) if you raise
 `--max-instances` above 1.
 
+### Continuous deployment
+
+`.github/workflows/deploy.yml` redeploys to Cloud Run on every merge to `main`.
+It authenticates **keyless** via Workload Identity Federation (no service-account
+key stored in GitHub — a short-lived OIDC token scoped to this repo), and it does
+**not** pass `--set-env-vars`, so the `DATABASE_URL` already set on the service is
+preserved and never travels through CI. Flow: PR → `develop` → `main` (both
+CI-gated) → auto-deploy.
+
 ---
 
 ## Content pipeline
