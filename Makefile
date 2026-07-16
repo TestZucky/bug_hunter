@@ -7,7 +7,7 @@ SHELL := /bin/bash
 .PHONY: help install setup dev build start \
         db-up db-down migrate seed db-reset \
         lint format format-check typecheck test check \
-        gen tunnel gen-prod drafts show publish unpublish clean deploy
+        gen tunnel gen-prod review drafts show publish unpublish backup clean deploy
 
 help: ## List available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -103,6 +103,10 @@ gen-prod: ## Generate challenges as DRAFTS in prod (LANG=python N=8; needs `make
 	$(require_tunnel)
 	@DATABASE_URL="$$($(GET_DB_URL))" npm run gen:challenges -- $(or $(LANG),python) $(or $(N),8) --write-db
 
+review: ## Step through every draft and publish/delete by keypress (needs `make tunnel`)
+	$(require_tunnel)
+	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- review
+
 drafts: ## List prod challenges awaiting review (needs `make tunnel`)
 	$(require_tunnel)
 	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- drafts
@@ -121,6 +125,20 @@ unpublish: ## Pull a challenge back out of the game (ID=some-id; needs `make tun
 	@test -n "$(ID)" || { echo "Usage: make unpublish ID=<challenge-id>"; exit 1; }
 	$(require_tunnel)
 	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- unpublish $(ID)
+
+# Goes to $HOME, never into the repo: the dump holds every answer and this repo
+# is public. Needs no tunnel — pg_dump runs on the VM, over IAP.
+BACKUP_DIR ?= $(HOME)
+
+backup: ## Dump the prod DB to $(BACKUP_DIR)/bughunter-backup-<date>.sql
+	@out="$(BACKUP_DIR)/bughunter-backup-$$(date +%F).sql"; \
+	gcloud compute ssh $(VM) --zone=$(ZONE) --tunnel-through-iap \
+	  --command="docker exec -i pg pg_dump -U bughunter -d bughunter" > "$$out" 2>/dev/null; \
+	if ! grep -q "PostgreSQL database dump complete" "$$out" 2>/dev/null; then \
+	  echo "Backup FAILED or truncated — not keeping $$out"; rm -f "$$out"; exit 1; \
+	fi; \
+	echo "Wrote $$out ($$(wc -c < "$$out" | tr -d ' ') bytes, $$(grep -c "^" "$$out") lines)"; \
+	echo "Restore with:  cat $$out | gcloud compute ssh $(VM) --zone=$(ZONE) --tunnel-through-iap --command=\"docker exec -i pg psql -U bughunter -d bughunter\""
 
 clean: ## Remove build artifacts
 	rm -rf .next

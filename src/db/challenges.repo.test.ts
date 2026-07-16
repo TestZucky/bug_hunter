@@ -84,6 +84,31 @@ describe.skipIf(!HAS_DB)("challenges repo (DB integration)", () => {
     );
   });
 
+  it("deletes drafts but never published challenges", async () => {
+    const { upsertMany, deleteDrafts, getById } = await import(
+      "@/db/challenges.repo"
+    );
+    const draft: Challenge = { ...FIXTURE_CHALLENGES[0], id: "guard-draft-1" };
+    const live: Challenge = {
+      ...FIXTURE_CHALLENGES[0],
+      id: "guard-same-source-1",
+    };
+    await upsertMany([draft], "llm-2026-01-01");
+    await upsertMany([live], "llm-2026-01-01", "published");
+
+    // Both ids passed; only the draft may go.
+    const removed = await deleteDrafts([
+      "guard-draft-1",
+      "guard-same-source-1",
+    ]);
+
+    expect(removed).toEqual(["guard-draft-1"]);
+    expect(await getById("guard-draft-1")).toBeNull();
+    expect((await getById("guard-same-source-1"))?.id).toBe(
+      "guard-same-source-1",
+    );
+  });
+
   it("refuses to overwrite a row owned by a different source", async () => {
     const { upsertMany, getById } = await import("@/db/challenges.repo");
     const original: Challenge = {

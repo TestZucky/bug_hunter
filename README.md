@@ -212,16 +212,52 @@ must point at the bank you actually publish from — otherwise dedup silently
 degrades to batch-only.
 
 **Generated challenges are never published automatically.** `--write-db` writes
-`status='draft'`, which `getPool` excludes, so drafts are invisible to players.
-Review them, then promote:
-
-```sql
-UPDATE challenges SET status='published' WHERE id IN ('...');
-```
+`status='draft'`, which `getPool` excludes, so drafts are invisible to players
+until a human promotes them.
 
 This is deliberate. The adversarial verify pass is useful but fallible — it has
 approved challenges whose "correct" fix provably breaks the code. A human reads
 the draft before players do.
+
+### Adding challenges to production
+
+Needs `OPENAI_API_KEY` in `.env` (generation calls OpenAI and costs money) and
+`gcloud` logged in. The prod DB has no public address, so everything below goes
+through an SSH tunnel.
+
+```bash
+make tunnel                       # terminal 1 — leave running (silent = working)
+
+make gen-prod LANG=python N=8     # terminal 2 — generate; lands as DRAFTS
+make gen-prod LANG=javascript N=8
+make review                       # step through each draft: [p]ublish [d]elete [s]kip
+make backup                       # dump prod to ~/bughunter-backup-<date>.sql
+```
+
+Only `gen-prod` spends money. `review` just reads what is already in the DB.
+Expect roughly 1–3 of 8 candidates to survive the verify pass.
+
+`make review` prints each draft with the bug line marked `▸` and the answer key
+beside it, then waits for one keypress. `p` publishes it — live immediately, no
+deploy. Read it first: check the `▸` line is really the bug, the `✓` fix really
+works, and every `✗` option is actually wrong.
+
+Count what is in the bank, before and after:
+
+```bash
+gcloud compute ssh bug-hunter-db --zone=us-central1-a --tunnel-through-iap \
+  --command="docker exec -i pg psql -U bughunter -d bughunter -c \"SELECT language, status, COUNT(*) FROM challenges GROUP BY language, status ORDER BY language, status;\""
+```
+
+Or ask the live site what players actually get:
+
+```bash
+curl -s -X POST https://bug-hunter-891741363607.us-central1.run.app/api/challenges/session \
+  -H "Content-Type: application/json" -d '{"lang":"python","count":50}' | grep -o '"id"' | wc -l
+```
+
+Other targets: `make drafts` (list), `make show ID=…` (read one),
+`make publish ID=…` / `make unpublish ID=…` (promote or pull back).
 
 Answers (`bugLineIds`, `isCorrect`, `explanation`) live only in the database and
 in git-ignored files. `/generated` and `/seed` are in `.gitignore` and must stay
