@@ -17,6 +17,24 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    # Postgres for the DB integration test.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bughunter
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bughunter"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/bughunter
+
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +61,10 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Unit tests
+      - name: Migrate database
+        run: npm run db:migrate
+
+      - name: Unit + integration tests
         run: npm run test:run
 
       - name: Build

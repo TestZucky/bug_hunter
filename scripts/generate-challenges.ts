@@ -31,8 +31,9 @@ import OpenAI from "openai";
 // Reuse the exact schema the app validates against (this file only imports zod).
 import { challengeSchema } from "../src/schemas/challenge.schema";
 // The existing challenge bank, for cross-bank dedup (tsx resolves the @/ alias).
-import { CHALLENGES } from "@/content/challenges";
+import { getAllPublished, upsertMany } from "@/db/challenges.repo";
 import { describeError, logger } from "@/lib/logger";
+import type { Challenge } from "@/types/challenge";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -429,11 +430,11 @@ function normTitle(t: string): string {
 }
 
 /** Hashes + titles of the challenges already in the bank, for cross-bank dedup. */
-function existingFingerprints() {
+function existingFingerprints(existing: Challenge[]) {
   const codeHashes = new Set(
-    CHALLENGES.map((c) => codeHash(c.code.map((l) => l.content))),
+    existing.map((c) => codeHash(c.code.map((l) => l.content))),
   );
-  const titles = new Set(CHALLENGES.map((c) => normTitle(c.title)));
+  const titles = new Set(existing.map((c) => normTitle(c.title)));
   return { codeHashes, titles };
 }
 
@@ -541,10 +542,19 @@ async function main() {
 
   // 2. Structural validation + 3. dedup (within the batch AND against the existing bank)
   const seen = new Set<string>();
-  const existing = existingFingerprints();
+  const existingChallenges = await getAllPublished().catch((err) => {
+    logger.warn(
+      "Could not read existing challenges from DB — batch-only dedup",
+      {
+        ...describeError(err),
+      },
+    );
+    return [] as Challenge[];
+  });
+  const existing = existingFingerprints(existingChallenges);
   console.log(
     C.dim(
-      `  cross-bank dedup against ${CHALLENGES.length} existing challenges`,
+      `  cross-bank dedup against ${existingChallenges.length} existing challenges`,
     ),
   );
   const structurallyValid: {
@@ -607,7 +617,7 @@ async function main() {
         embedTexts(
           client,
           embedModel,
-          CHALLENGES.map((c) =>
+          existingChallenges.map((c) =>
             embedTextFor(
               c.code.map((l) => l.content),
               c.explanation,
@@ -637,7 +647,7 @@ async function main() {
         let best = { sim: -1, id: "" };
         existingEmb.forEach((e, j) => {
           const sim = cosine(emb, e);
-          if (sim > best.sim) best = { sim, id: CHALLENGES[j].id };
+          if (sim > best.sim) best = { sim, id: existingChallenges[j].id };
         });
         keptEmb.forEach((e, k) => {
           const sim = cosine(emb, e);
@@ -746,9 +756,22 @@ async function main() {
         `\nWrote approved challenges → ${path.relative(process.cwd(), outFile)}`,
       ),
     );
-    console.log(
-      C.dim("Review them, then paste into src/content/challenges/*.ts.\n"),
-    );
+
+    // Optionally write straight to the DB with --write-db.
+    if (process.argv.includes("--write-db")) {
+      const stampDate = new Date().toISOString().slice(0, 10);
+      await upsertMany(
+        approved.map((v) => v.full as Challenge),
+        `llm-${stampDate}`,
+      );
+      console.log(
+        C.dim(`Upserted ${approved.length} approved challenges into the DB.\n`),
+      );
+    } else {
+      console.log(
+        C.dim("Review the file, then run again with --write-db to publish.\n"),
+      );
+    }
   } else {
     console.log(
       C.dim("\nNothing approved this run — tighten the prompt or re-run.\n"),
