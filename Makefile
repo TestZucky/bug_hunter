@@ -7,7 +7,7 @@ SHELL := /bin/bash
 .PHONY: help install setup dev build start \
         db-up db-down migrate seed db-reset \
         lint format format-check typecheck test check \
-        gen clean
+        gen clean deploy
 
 help: ## List available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -74,3 +74,18 @@ gen: ## Generate + verify challenges (LANG=javascript N=8 [DB=1])
 
 clean: ## Remove build artifacts
 	rm -rf .next
+
+# ── Deploy (Cloud Run, $0-tier config) ───────────────────────────────
+# Needs: `gcloud auth login` + a project set, and DATABASE_URL exported to your
+# production Postgres (e.g. a free Neon/Supabase). Optional: SERVICE, REGION.
+# Runs one always-available-when-busy instance that scales to zero when idle, so
+# the in-memory rate limiter + sessions work without Redis.
+deploy: ## Deploy to Cloud Run (export DATABASE_URL first)
+	@test -n "$$DATABASE_URL" || { echo "Set DATABASE_URL to your prod Postgres first: export DATABASE_URL=..."; exit 1; }
+	gcloud run deploy $(or $(SERVICE),bug-hunter) \
+		--source . \
+		--region $(or $(REGION),us-central1) \
+		--allow-unauthenticated \
+		--min-instances=0 --max-instances=1 --concurrency=80 \
+		--memory=512Mi --cpu=1 \
+		--set-env-vars "DATABASE_URL=$$DATABASE_URL"

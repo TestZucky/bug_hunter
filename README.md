@@ -150,6 +150,36 @@ Tests live next to their source as *.test.ts.
 
 ---
 
+## Deploy ($0 — Cloud Run)
+
+A minimal, near-free setup: Cloud Run (scales to zero) + a **free** managed
+Postgres (Neon or Supabase). No Redis, no VPC — a single instance uses the
+in-memory rate limiter + sessions.
+
+```bash
+# 1. Create a free Postgres (neon.tech or supabase.com) → copy its connection string.
+export DATABASE_URL="postgres://…"        # your PROD database
+
+# 2. Create the schema + seed it (once, from your machine, against prod):
+npm run db:migrate && npm run db:seed
+
+# 3. Deploy (needs `gcloud auth login` + a project set):
+make deploy                                # → prints an https:// URL
+```
+
+`make deploy` runs `gcloud run deploy --source .` with `--min-instances=0
+--max-instances=1` (scales to zero, one instance when busy → in-memory state
+works), `--memory=512Mi`, public access, and injects `DATABASE_URL`. HTTPS is
+automatic. Override the service name/region with `SERVICE=… REGION=… make deploy`.
+
+**Free-tier must-dos (all free):** turn on **automated backups** on your Postgres
+(the challenge bank lives only there), use a **strong DB password over TLS**, and
+set a **GCP budget alert**. Optional upgrades later: Secret Manager instead of an
+env var (`--set-secrets`), and Upstash Redis (`REDIS_URL`) if you raise
+`--max-instances` above 1.
+
+---
+
 ## Content pipeline
 
 ```mermaid

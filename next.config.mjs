@@ -36,6 +36,8 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Minimal self-contained server output for a small container image.
+  output: "standalone",
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
