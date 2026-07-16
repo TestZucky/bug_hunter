@@ -38,13 +38,21 @@ locally; `make db-reset` rebuilds the database).
 > generation pipeline can write more straight to the DB. Keep a backup of your
 > seed/DB — a fresh `git clone` has no questions by design.
 
-| Script                                              | What it does                                          |
-| --------------------------------------------------- | ----------------------------------------------------- |
-| `npm run dev` / `build` / `start`                   | Next.js dev / production build / serve                |
-| `npm run db:migrate` / `db:seed` / `db:push`        | Apply migrations / load seed / dev-sync schema        |
-| `npm run db:generate`                               | Generate a new migration from the Drizzle schema      |
-| `npm run lint` · `format` · `typecheck` · `test`    | Quality gates                                         |
-| `npm run gen:challenges -- <lang> [n] [--write-db]` | Generate + verify challenges (needs `OPENAI_API_KEY`) |
+Every task has a `make` shortcut (each wraps an `npm` script — run `make help`):
+
+| Command                                       | What it does                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------- |
+| `make setup`                                  | First-time: install + start Postgres + migrate + seed               |
+| `make dev` / `build` / `start`                | Next.js dev / production build / serve                              |
+| `make db-up` / `db-down` / `migrate` / `seed` | Start-and-wait / stop / migrate / seed Postgres                     |
+| `make db-reset`                               | Drop and rebuild the database from scratch                          |
+| `make check`                                  | Full CI gauntlet locally (lint · format · typecheck · test · build) |
+| `make gen LANG=python N=8 DB=1`               | Generate + verify challenges (`DB=1` also upserts to Postgres)      |
+| `make lint` / `format` / `typecheck` / `test` | Individual quality gates                                            |
+
+Underlying npm scripts (`npm run …`): `dev`, `build`, `start`, `db:migrate`,
+`db:seed`, `db:push`, `db:generate`, `lint`, `format`, `typecheck`, `test`,
+`gen:challenges -- <lang> [n] [--write-db]` (needs `OPENAI_API_KEY`).
 
 ---
 
@@ -113,14 +121,19 @@ src/
   db/                        schema.ts (Drizzle), index.ts (client), challenges.repo.ts
   stores/                    gameStore (async, server-graded), userStore, settingsStore
   services/                  challengeService (pure: project/grade/select), gameApi (client fetch)
+  hooks/                     useTimer, useSound, useHydrated
   lib/                       scoring, ranks, constants, logger (redaction), syntax, cn
   schemas/                   Zod challenge schema
+  types/                     shared TypeScript types (challenge, game)
   test/                      synthetic fixtures + local grader (unit tests, no DB)
 scripts/
   generate-challenges.ts     OpenAI generate → validate → dedup(DB) → verify → gate
   db-migrate.ts · db-seed.ts · scan-secrets.mjs
 drizzle/                     generated SQL migrations
+Makefile                     make shortcuts (wrap the npm scripts)
 docker-compose.yml           Postgres service
+
+Tests live next to their source as *.test.ts.
 ```
 
 ---
