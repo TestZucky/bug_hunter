@@ -182,6 +182,21 @@ export async function setStatus(
   return rows.map((r) => r.id);
 }
 
+/**
+ * Hard-delete rejected drafts. Returns the ids actually removed.
+ *
+ * Only ever deletes rows in "draft" status — published and seed content cannot
+ * be destroyed through this path, whatever ids a caller passes.
+ */
+export async function deleteDrafts(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .delete(challenges)
+    .where(and(inArray(challenges.id, ids), eq(challenges.status, "draft")))
+    .returning({ id: challenges.id });
+  return rows.map((r) => r.id);
+}
+
 /** All published challenges (used by the pipeline for cross-bank dedup). */
 export async function getAllPublished(): Promise<Challenge[]> {
   const rows = await db
