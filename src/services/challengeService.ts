@@ -1,17 +1,23 @@
-import { CHALLENGES } from "@/content/challenges";
 import type {
-  Category,
   Challenge,
   Difficulty,
   Language,
   PublicChallenge,
 } from "@/types/challenge";
+import type { RevealPayload } from "@/types/game";
 
 /**
- * Strip all answer keys so nothing correctness-related reaches the game UI.
- * Options are also shuffled deterministically per challenge so the correct
- * answer isn't always first (TDD §18.1).
+ * Pure challenge helpers — NO database or content import, so this is safe to use
+ * on both the server (grading) and, for the type-only pieces, the client.
+ *
+ * The answer-bearing functions (grading, reveal, toPublicChallenge) are only
+ * ever called on the server; the client receives PublicChallenge and reveal
+ * payloads over the API.
  */
+
+// ─── Answer-safe projection ───────────────────────────────────────────────
+
+/** Strip all answer keys and deterministically shuffle options (TDD §18.1). */
 export function toPublicChallenge(c: Challenge): PublicChallenge {
   const seed = hashString(c.id);
   return {
@@ -38,18 +44,18 @@ export function toPublicChallenge(c: Challenge): PublicChallenge {
   };
 }
 
-export function getChallengeById(id: string): Challenge | undefined {
-  return CHALLENGES.find((c) => c.id === id);
-}
+// ─── Grading (server-only) ─────────────────────────────────────────────────
 
-/** Answer key lookups — used by the (local) grading layer, never exposed raw. */
-export function isBugLineCorrect(c: Challenge, lineId: string): boolean {
-  return c.bugLineIds.includes(lineId);
+export function isBugLineCorrect(c: Challenge, lineId: string | null): boolean {
+  return lineId != null && c.bugLineIds.includes(lineId);
 }
-export function isDiagnosisCorrect(c: Challenge, optionId: string): boolean {
+export function isDiagnosisCorrect(
+  c: Challenge,
+  optionId: string | null,
+): boolean {
   return c.diagnosisOptions.some((o) => o.id === optionId && o.isCorrect);
 }
-export function isFixCorrect(c: Challenge, optionId: string): boolean {
+export function isFixCorrect(c: Challenge, optionId: string | null): boolean {
   return c.fixOptions.some((o) => o.id === optionId && o.isCorrect);
 }
 export function correctFix(c: Challenge) {
@@ -59,54 +65,55 @@ export function correctDiagnosis(c: Challenge) {
   return c.diagnosisOptions.find((o) => o.isCorrect);
 }
 
-export interface SelectionQuery {
-  language?: Language | "mixed";
-  difficulty?: Difficulty | "adaptive";
-  category?: Category | "any";
-  count: number;
-  /** Challenge ids already seen this session (avoid repeats). */
-  exclude?: string[];
-  /** Deterministic ordering seed (daily mode). */
-  seed?: string;
+export function buildReveal(c: Challenge): RevealPayload {
+  const fix = correctFix(c);
+  const diag = correctDiagnosis(c);
+  return {
+    bugLabel: bugLabel(c.bugType),
+    explanation: c.explanation,
+    productionImpact: c.productionImpact,
+    correctLineId: c.bugLineIds[0],
+    correctDiagnosisId: diag?.id ?? "",
+    correctFixCode: fix?.code ?? "",
+  };
 }
 
-function matches(c: Challenge, q: SelectionQuery): boolean {
-  if (q.language && q.language !== "mixed" && c.language !== q.language)
-    return false;
-  if (
-    q.difficulty &&
-    q.difficulty !== "adaptive" &&
-    c.difficulty !== q.difficulty
-  )
-    return false;
-  if (q.category && q.category !== "any" && c.category !== q.category)
-    return false;
-  return true;
+/** Human-readable bug label from the bug type. */
+export function bugLabel(bugType: string): string {
+  const map: Record<string, string> = {
+    off_by_one: "Off-by-One Error",
+    null_reference: "Null Reference",
+    undefined_access: "Undefined Access",
+    missing_await: "Missing Await",
+    unhandled_promise: "Unhandled Rejection",
+    race_condition: "Race Condition",
+    sql_injection: "SQL Injection",
+    xss: "XSS Vulnerability",
+    authorization_error: "Broken Authorization",
+    authentication_error: "Auth Vulnerability",
+    memory_leak: "Memory Leak",
+    resource_leak: "Resource Leak",
+    performance_issue: "Performance Issue",
+    incorrect_mutation: "Incorrect Mutation",
+    wrong_condition: "Wrong Condition",
+    wrong_status_code: "Wrong Status Code",
+    loose_equality: "Loose Equality",
+    type_mismatch: "Type Mismatch",
+    missing_return: "Missing Return",
+    stale_state: "Stale State",
+    infinite_loop: "Infinite Loop",
+    syntax_error: "Syntax Error",
+  };
+  return map[bugType] ?? "Bug";
 }
 
-/** Pick a pool of challenges matching the query, avoiding repeats. */
-export function selectChallenges(q: SelectionQuery): Challenge[] {
-  const exclude = new Set(q.exclude ?? []);
-  let pool = CHALLENGES.filter((c) => !exclude.has(c.id) && matches(c, q));
+// ─── Selection over a pool (pure; the pool comes from the DB) ───────────────
 
-  // If filtering emptied the pool, relax the exclude list rather than fail.
-  if (pool.length === 0) {
-    pool = CHALLENGES.filter((c) => matches(c, q));
-  }
-
-  const ordered = q.seed
-    ? seededShuffle(pool, q.seed)
-    : shuffle(pool, Date.now() & 0xffff);
-  return ordered.slice(0, q.count);
-}
-
-/**
- * Build a difficulty-laddered classic run: easy → medium → hard as rounds
- * progress. Falls back gracefully when a bucket is short.
- */
-export function buildClassicRun(
+/** Difficulty-laddered run from a candidate pool (easy → medium → hard). */
+export function buildRunFrom(
+  pool: Challenge[],
   language: Language | "mixed",
-  totalRounds: number,
+  count: number,
   seed?: string,
 ): Challenge[] {
   const buckets: Record<Difficulty, Challenge[]> = {
@@ -114,29 +121,27 @@ export function buildClassicRun(
     medium: [],
     hard: [],
   };
-  for (const c of CHALLENGES) {
+  for (const c of pool) {
     if (language !== "mixed" && c.language !== language) continue;
     buckets[c.difficulty].push(c);
   }
-  const s = seed ?? String(Date.now());
+  const s = seed ?? "run";
   buckets.easy = seededShuffle(buckets.easy, s + "e");
   buckets.medium = seededShuffle(buckets.medium, s + "m");
   buckets.hard = seededShuffle(buckets.hard, s + "h");
 
-  // Rough ladder: first 40% easy, next 40% medium, last 20% hard.
-  const easyCount = Math.max(1, Math.round(totalRounds * 0.4));
-  const mediumCount = Math.max(1, Math.round(totalRounds * 0.4));
+  const easyCount = Math.max(1, Math.round(count * 0.4));
+  const mediumCount = Math.max(1, Math.round(count * 0.4));
   const order: Challenge[] = [
     ...buckets.easy.slice(0, easyCount),
     ...buckets.medium.slice(0, mediumCount),
     ...buckets.hard,
   ];
 
-  // Backfill from the full matching pool if we came up short.
-  if (order.length < totalRounds) {
+  if (order.length < count) {
     const seen = new Set(order.map((c) => c.id));
     const extra = seededShuffle(
-      CHALLENGES.filter(
+      pool.filter(
         (c) =>
           !seen.has(c.id) && (language === "mixed" || c.language === language),
       ),
@@ -144,10 +149,10 @@ export function buildClassicRun(
     );
     order.push(...extra);
   }
-  return order.slice(0, totalRounds);
+  return order.slice(0, count);
 }
 
-// ─── Deterministic helpers ────────────────────────────────────────────────
+// ─── Deterministic helpers ─────────────────────────────────────────────────
 
 export function hashString(str: string): number {
   let h = 2166136261;

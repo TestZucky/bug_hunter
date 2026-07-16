@@ -4,158 +4,198 @@ A fast, mobile-first debugging game. Enter a name, pick a language, then **tap t
 buggy line** and **choose what's wrong** before the timer runs out — every wrong
 call is a real production incident.
 
-Built with Next.js + TypeScript. Game logic, scoring, and content are real;
-player progress persists in the browser. New challenges are grown by a nightly
-**OpenAI generate → validate → dedup → verify** pipeline that opens a PR for review.
+Next.js + TypeScript on the front, **PostgreSQL** on the back. Challenges live in
+the database (never in git); the server sends the browser an **answer-stripped**
+view and **grades on the server**, so questions and answers are never shipped to
+the client. New challenges are grown by an OpenAI **generate → validate → dedup →
+verify** pipeline.
 
 ---
 
 ## Quick start
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000  (best viewed narrow / on a phone)
+cp .env.example .env          # set DATABASE_URL (+ OPENAI_API_KEY for the pipeline)
+make setup                    # install + start Postgres + migrate + seed
+make dev                      # http://localhost:3000  (best on a phone / narrow)
 ```
 
-| Script                                 | What it does                                              |
-| -------------------------------------- | --------------------------------------------------------- |
-| `npm run dev` / `build` / `start`      | Next.js dev / production build / serve                    |
-| `npm run lint` / `lint:fix`            | ESLint (next + prettier)                                  |
-| `npm run format` / `format:check`      | Prettier write / check                                    |
-| `npm run typecheck`                    | `tsc --noEmit`                                            |
-| `npm run test` / `test:run`            | Vitest (watch / once)                                     |
-| `npm run scan:secrets`                 | Fail if a credential is committed                         |
-| `npm run gen:challenges -- <lang> [n]` | Generate + verify new challenges (needs `OPENAI_API_KEY`) |
+Prefer raw commands? The equivalent without `make`:
+
+```bash
+npm install
+docker compose up -d db       # start Postgres (or use your own)
+npm run db:migrate            # create the schema
+npm run db:seed               # load seed/challenges.json into the DB (git-ignored)
+npm run dev
+```
+
+Run `make help` to list all shortcuts (`make check` runs the full CI gauntlet
+locally; `make db-reset` rebuilds the database).
+
+> **Where do the questions come from?** They are **not in the repo.** A baseline
+> lives in a git-ignored `seed/challenges.json`; `db:seed` loads it, and the
+> generation pipeline can write more straight to the DB. Keep a backup of your
+> seed/DB — a fresh `git clone` has no questions by design.
+
+Every task has a `make` shortcut (each wraps an `npm` script — run `make help`):
+
+| Command                                       | What it does                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------- |
+| `make setup`                                  | First-time: install + start Postgres + migrate + seed               |
+| `make dev` / `build` / `start`                | Next.js dev / production build / serve                              |
+| `make db-up` / `db-down` / `migrate` / `seed` | Start-and-wait / stop / migrate / seed Postgres                     |
+| `make db-reset`                               | Drop and rebuild the database from scratch                          |
+| `make check`                                  | Full CI gauntlet locally (lint · format · typecheck · test · build) |
+| `make gen LANG=python N=8 DB=1`               | Generate + verify challenges (`DB=1` also upserts to Postgres)      |
+| `make lint` / `format` / `typecheck` / `test` | Individual quality gates                                            |
+
+Underlying npm scripts (`npm run …`): `dev`, `build`, `start`, `db:migrate`,
+`db:seed`, `db:push`, `db:generate`, `lint`, `format`, `typecheck`, `test`,
+`gen:challenges -- <lang> [n] [--write-db]` (needs `OPENAI_API_KEY`).
 
 ---
 
 ## How the game works
 
 Enter name + language → tap the buggy line → pick the diagnosis (3–4 options) →
-see the explanation and production impact → next round. 60s per round, 3 lives,
-one guess per step, endless until your lives run out. High score is saved locally.
+see the explanation and production impact → next round. 60s/round, 3 lives, one
+guess per step, endless until your lives run out. High score is saved locally.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Inspecting
-    Inspecting --> Diagnosing: tap the correct line
+    Inspecting --> Diagnosing: tap the correct line (server says OK)
     Inspecting --> RoundResult: wrong line (one-shot)
-    Diagnosing --> RoundResult: pick an option
+    Diagnosing --> RoundResult: pick an option (server grades)
     RoundResult --> Inspecting: next round
     RoundResult --> SessionComplete: lives = 0
     SessionComplete --> [*]
 ```
 
-The store also supports a fuller Inspect → Find → **Diagnose** → **Fix** → Result
-loop (used by the richer `GameShell`), gated behind the same state machine.
-
 ---
 
 ## Architecture
 
+Answers live only in Postgres and are compared only on the server. The browser
+receives `PublicChallenge` (code + options, **no** correct-answer keys) and posts
+each guess to a grade endpoint.
+
 ```mermaid
 flowchart TD
-    Player([Player]) --> Start["/ — Start screen<br/>name + language"]
+    Player([Player]) --> Start["/ — name + language"]
     Start --> Play["/play — SimpleGame"]
-    Profile["/profile — stats"]
 
-    subgraph client [Client]
-        Play --> Store["gameStore<br/>(state machine)"]
-        Store --> Scoring["scoring · ranks · constants"]
-        Store --> Service["challengeService<br/>(select · publicChallenge · grade)"]
-        Service --> Content[("challenge bank<br/>src/content/challenges/*.ts")]
-        Service --> Schema["Zod schema<br/>(validated at build)"]
+    subgraph client [Browser]
+        Play --> Store["gameStore (state machine)"]
         Store --> Persist[("localStorage<br/>XP · streak · best")]
         Play --> Boundary["ErrorBoundary + logger"]
     end
 
-    Store -.answer-safe.-> Public["PublicChallenge<br/>(no correct-answer keys)"]
-    Public --> UI["CodeEditor · AnswerPanel · RoundResult"]
-```
+    Store -- "GET /api/challenges/session" --> ApiS["session route"]
+    Store -- "POST /api/challenges/grade" --> ApiG["grade route"]
 
-**Answer safety:** the UI only ever receives the answer-stripped `PublicChallenge`
-projection (options shuffled deterministically, no `isCorrect` / bug line /
-explanation). Grading runs against the full challenge behind `challengeService`,
-so a real backend can slot in there without UI changes.
+    subgraph server [Next.js server]
+        ApiS --> Repo["challenges.repo (Drizzle)"]
+        ApiG --> Repo
+        ApiS --> Pub["toPublicChallenge<br/>(strip answers)"]
+        ApiG --> Grade["grade + reveal on resolve"]
+    end
+
+    Repo --> DB[(PostgreSQL<br/>challenges.payload jsonb)]
+
+    Pub -. "answer-free" .-> Store
+    Grade -. "correct? + reveal" .-> Store
+```
 
 ### Layout
 
 ```text
 src/
-  app/            routes: / (start), /play, /profile, error/global-error/not-found
-  components/
-    game/         SimpleGame, GameShell, CodeEditor, AnswerPanel, RoundResult, …
-    common/       ErrorBoundary, PageHeader
-  stores/         gameStore (state machine), userStore, settingsStore (Zustand + persist)
-  lib/            scoring, ranks, constants, logger (redaction), syntax highlighter, cn
-  services/       challengeService (select, daily seed, public projection, grading)
-  schemas/        Zod challenge schema + validator
-  content/        challenge data (javascript.ts, python.ts) via a compact builder
-  hooks/          useTimer, useSound, useHydrated
+  app/
+    api/challenges/session   GET  → answer-stripped queue
+    api/challenges/grade     POST → server-side grading + reveal
+    / (start) · /play · /profile · error/global-error/not-found
+  components/game/           SimpleGame, Confetti
+  components/common/         ErrorBoundary, PageHeader
+  db/                        schema.ts (Drizzle), index.ts (client), challenges.repo.ts
+  stores/                    gameStore (async, server-graded), userStore, settingsStore
+  services/                  challengeService (pure: project/grade/select), gameApi (client fetch)
+  hooks/                     useTimer, useSound, useHydrated
+  lib/                       scoring, ranks, constants, logger (redaction), syntax, cn
+  schemas/                   Zod challenge schema
+  types/                     shared TypeScript types (challenge, game)
+  test/                      synthetic fixtures + local grader (unit tests, no DB)
 scripts/
-  generate-challenges.ts   OpenAI generate → validate → dedup → verify → gate
-  scan-secrets.mjs         credential scanner (pre-commit + CI)
+  generate-challenges.ts     OpenAI generate → validate → dedup(DB) → verify → gate
+  db-migrate.ts · db-seed.ts · scan-secrets.mjs
+drizzle/                     generated SQL migrations
+Makefile                     make shortcuts (wrap the npm scripts)
+docker-compose.yml           Postgres service
+
+Tests live next to their source as *.test.ts.
 ```
 
 ---
 
-## Content pipeline (nightly)
+## Database
 
-Challenges are grown by an OpenAI pipeline that never auto-publishes — it opens a
-PR you review.
+- **Drizzle ORM** over `pg`. One `challenges` table: scalar columns for filtering
+  (`language`, `status`, …) plus a `payload jsonb` holding the full challenge
+  **with answers** (server-only).
+- `docker compose up -d db` starts Postgres; `db:migrate` applies `drizzle/*.sql`;
+  `db:seed` loads the git-ignored `seed/challenges.json`.
+- The **client never imports the bank** — it fetches `PublicChallenge` from the
+  API. Grading (`isBugLineCorrect`, …) runs only in the grade route.
+
+---
+
+## Content pipeline
 
 ```mermaid
 flowchart LR
-    Cron([Nightly Action<br/>00:00 UTC]) --> Gen["OpenAI: generate<br/>(structured output)"]
-    Gen --> Zod["Zod validate<br/>(1 correct diag/fix, valid bug line)"]
-    Zod --> Hash["Exact dedup<br/>(code/title hash)"]
-    Hash --> Embed["Semantic dedup<br/>(embedding cosine)"]
-    Embed --> Verify["Adversarial verify<br/>(skeptical 2nd pass)"]
+    Gen["OpenAI: generate<br/>(structured output)"] --> Zod["Zod validate"]
+    Zod --> Hash["exact dedup (hash)"]
+    Hash --> Embed["semantic dedup (embeddings)"]
+    Embed --> Verify["adversarial verify"]
     Verify --> Gate{approved?}
-    Gate -->|yes| PR["Open PR → review → paste into content"]
-    Gate -->|no| Drop["Reject + log reason<br/>(schema / duplicate / verify)"]
+    Gate -->|yes| Out["generated/*.json<br/>(+ DB with --write-db)"]
+    Gate -->|no| Drop["reject + log reason"]
 ```
-
-Run it locally:
 
 ```bash
-cp .env.example .env      # paste your OPENAI_API_KEY
-npm run gen:challenges -- javascript 8
-npm run gen:challenges -- python 8
+npm run gen:challenges -- javascript 8              # writes generated/*.json for review
+npm run gen:challenges -- javascript 8 --write-db   # also upserts approved into Postgres
 ```
 
-Approved candidates are written to `generated/*.json` for review. Env knobs:
-`OPENAI_MODEL`, `OPENAI_VERIFY_MODEL`, `OPENAI_EMBED_MODEL`, `DEDUP_SIM_THRESHOLD`.
-
-**Nightly automation:** `.github/workflows/generate-challenges.yml` runs the
-pipeline for both languages at midnight UTC and opens a PR. Requires the repo
-secret `OPENAI_API_KEY` and "Allow GitHub Actions to create and approve pull
-requests" enabled in repo settings.
+Dedup (hash + embeddings) runs against the **live DB bank**. The nightly Action
+(`.github/workflows/generate-challenges.yml`) generates for both languages and
+opens a PR; set a hosted `DATABASE_URL` secret to enable DB dedup/writes.
 
 ---
 
 ## Production practices
 
-- **Logging + redaction** — `src/lib/logger.ts`: leveled, structured (JSON in
-  prod), and every message/metadata is scrubbed of API keys and secret-like env
-  values (KEY / SECRET / TOKEN / PASSWORD), so credentials never reach logs.
-- **Exception handling** — retry/backoff around OpenAI calls, global
-  unhandled-rejection/uncaught handlers in the script, and Next `error.tsx` /
-  `global-error.tsx` / `not-found.tsx` + a game `ErrorBoundary`.
-- **Tests** — Vitest unit suite for scoring, ranks, schema, service, and the
-  game state machine (`npm run test`).
-- **Pre-commit hooks** (husky) — `pre-commit` runs lint-staged (ESLint + Prettier
-  on staged files) and the secret scanner; `pre-push` runs typecheck + tests.
-- **CI** (`.github/workflows/ci.yml`) — on every PR to `main` and push to `main`:
-  secret scan → lint → format check → typecheck → tests → build.
-- **Secret hygiene** — `.env` is git-ignored; `scan-secrets.mjs` blocks common
-  key formats at commit time and in CI.
+- **Answer safety** — questions/answers are in Postgres only; the client gets a
+  stripped projection and every guess is graded server-side.
+- **Logging + redaction** — `src/lib/logger.ts` scrubs API keys and secret-like
+  env values from all output.
+- **Exception handling** — retry/backoff on external calls, global handlers in
+  scripts, Next error/global-error/not-found boundaries + a game `ErrorBoundary`,
+  and grade failures never cost the player a life.
+- **Tests** — Vitest units (scoring, ranks, schema, service, state machine) using
+  synthetic fixtures + a local grader, plus a DB integration test (CI runs
+  Postgres; local `npm test` skips it without `DATABASE_URL`).
+- **Pre-commit hooks** (husky) — lint-staged + secret scan; pre-push typecheck +
+  tests.
+- **CI** (`.github/workflows/ci.yml`) — on PR/push to `main`+`develop`: secret scan
+  → lint → format → typecheck → migrate → tests → build (with a Postgres service).
 
 ---
 
 ## Not in this phase
 
-Backend APIs, database, real auth, and a networked leaderboard are deferred. The
-code is structured so a server slots in behind `challengeService` / the stores
-without UI changes — grading already runs against a "server-shaped" challenge and
-the client consumes only the sanitized projection.
+Real accounts/auth and a networked leaderboard (progress is still local
+`localStorage`). Per-round anti-cheat (server session state) is a follow-up — today
+the grade endpoint is stateless, so answers are protected from the repo and the
+bundle but a scripted client could still enumerate a single challenge's options.

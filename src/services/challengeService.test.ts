@@ -1,14 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CHALLENGES } from "@/content/challenges";
-import {
-  buildClassicRun,
-  selectChallenges,
-  toPublicChallenge,
-} from "@/services/challengeService";
+import { buildRunFrom, toPublicChallenge } from "@/services/challengeService";
+import { FIXTURE_CHALLENGES } from "@/test/fixtures";
 
 describe("challengeService", () => {
   it("public projection strips all answer keys", () => {
-    const json = JSON.stringify(toPublicChallenge(CHALLENGES[0]));
+    const json = JSON.stringify(toPublicChallenge(FIXTURE_CHALLENGES[0]));
     expect(json).not.toContain("isCorrect");
     expect(json).not.toContain("bugLineIds");
     expect(json).not.toContain("explanation");
@@ -16,7 +12,7 @@ describe("challengeService", () => {
   });
 
   it("public projection keeps every option (by id)", () => {
-    const c = CHALLENGES[0];
+    const c = FIXTURE_CHALLENGES[0];
     const pub = toPublicChallenge(c);
     expect(pub.diagnosisOptions.length).toBe(c.diagnosisOptions.length);
     expect(pub.fixOptions.length).toBe(c.fixOptions.length);
@@ -26,18 +22,14 @@ describe("challengeService", () => {
   });
 
   it("public projection is deterministic per challenge", () => {
-    expect(JSON.stringify(toPublicChallenge(CHALLENGES[0]))).toBe(
-      JSON.stringify(toPublicChallenge(CHALLENGES[0])),
+    expect(JSON.stringify(toPublicChallenge(FIXTURE_CHALLENGES[0]))).toBe(
+      JSON.stringify(toPublicChallenge(FIXTURE_CHALLENGES[0])),
     );
   });
 
-  it("selectChallenges respects count and language", () => {
-    const picks = selectChallenges({ language: "python", count: 5 });
-    expect(picks.length).toBe(5);
-    expect(picks.every((c) => c.language === "python")).toBe(true);
-  });
-
-  it("buildClassicRun returns the requested length", () => {
-    expect(buildClassicRun("javascript", 10)).toHaveLength(10);
+  it("buildRunFrom respects count and language", () => {
+    const run = buildRunFrom(FIXTURE_CHALLENGES, "javascript", 2);
+    expect(run).toHaveLength(2);
+    expect(run.every((c) => c.language === "javascript")).toBe(true);
   });
 });

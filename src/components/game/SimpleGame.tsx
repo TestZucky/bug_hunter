@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSound } from "@/hooks/useSound";
 import { useTimer } from "@/hooks/useTimer";
 import { TOKEN_COLORS, tokenize } from "@/lib/syntax";
-import { buildClassicRun } from "@/services/challengeService";
+import { fetchSessionChallenges } from "@/services/gameApi";
 import { useGameStore } from "@/stores/gameStore";
 import { useUserStore, type SessionOutcome } from "@/stores/userStore";
 import type { Language } from "@/types/challenge";
@@ -37,6 +37,7 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
   const shake = useGameStore((s) => s.shake);
   const lastResult = useGameStore((s) => s.lastResult);
   const roundIndex = useGameStore((s) => s.roundIndex);
+  const grading = useGameStore((s) => s.grading);
 
   const startSession = useGameStore((s) => s.startSession);
   const selectLine = useGameStore((s) => s.selectLine);
@@ -46,39 +47,45 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
   const nextRound = useGameStore((s) => s.nextRound);
 
   const pub = useGameStore((s) => s.currentPublic)();
-  const challenge = useGameStore((s) => s.currentChallenge)();
 
   const bestScore = useUserStore((s) => s.bestScores.classic ?? 0);
   const recordSession = useUserStore((s) => s.recordSession);
   const buildSummary = useGameStore((s) => s.buildSummary);
 
   const [confetti, setConfetti] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const started = useRef(false);
   const recorded = useRef(false);
   const [outcome, setOutcome] = useState<SessionOutcome | null>(null);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     recorded.current = false;
     setOutcome(null);
-    startSession(
-      {
-        mode: "classic",
-        language,
-        difficulty: "adaptive",
-        totalRounds: null,
-        lives: 3,
-        skipFix: true,
-        roundSeconds: ROUND_SECONDS,
-        allowRetry: false,
-      },
-      buildClassicRun(language, 40),
-    );
+    setLoadError(false);
+    try {
+      const challenges = await fetchSessionChallenges(language, 40);
+      startSession(
+        {
+          mode: "classic",
+          language,
+          difficulty: "adaptive",
+          totalRounds: null,
+          lives: 3,
+          skipFix: true,
+          roundSeconds: ROUND_SECONDS,
+          allowRetry: false,
+        },
+        challenges,
+      );
+    } catch {
+      setLoadError(true);
+    }
   }, [language, startSession]);
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    start();
+    void start();
   }, [start]);
 
   // Record final score once, on game over.
@@ -112,18 +119,20 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
     prevShake.current = shake;
   }, [shake, vibrate]);
 
-  // ── Tap handlers (single tap commits) ────────────────────────────
+  // ── Tap handlers (single tap commits; grading is server-side) ─────
   function tapLine(id: string) {
+    if (grading) return;
     if (status !== "inspecting" && status !== "line_selected") return;
     play("select");
     selectLine(id);
-    submitLine();
+    void submitLine();
   }
   function tapOption(id: string) {
+    if (grading) return;
     if (status !== "diagnosing") return;
     play("select");
     selectDiagnosis(id);
-    submitDiagnosis();
+    void submitDiagnosis();
   }
 
   const timerPct = (timeLeft / ROUND_SECONDS) * 100;
@@ -183,7 +192,7 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
             </div>
           )}
           <button
-            onClick={start}
+            onClick={() => void start()}
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm mb-2 transition-transform active:scale-95"
             style={{
               background: "linear-gradient(135deg, #6366f1, #7c3aed)",
@@ -204,7 +213,34 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
     );
   }
 
-  if (!pub || !challenge) {
+  if (loadError) {
+    return (
+      <div className="min-h-[100dvh] flex flex-col items-center justify-center p-6 text-center">
+        <div className="text-4xl mb-3" aria-hidden>
+          📡
+        </div>
+        <h1 className="text-lg font-bold mb-1">
+          Couldn&apos;t load challenges
+        </h1>
+        <p className="text-sm text-muted-foreground mb-5 max-w-xs">
+          The challenge server didn&apos;t respond. Check your connection and
+          try again.
+        </p>
+        <button
+          onClick={() => void start()}
+          className="px-5 py-2.5 rounded-2xl font-semibold text-sm"
+          style={{
+            background: "linear-gradient(135deg, #6366f1, #7c3aed)",
+            color: "#fff",
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (!pub) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center text-muted-foreground">
         Loading…
@@ -490,7 +526,7 @@ export function SimpleGame({ language }: { language: Language | "mixed" }) {
                   style={{ color: "#f97316" }}
                 >
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  <span>{challenge.productionImpact.metric}</span>
+                  <span>{lastResult.productionImpact?.metric}</span>
                 </div>
               </div>
               <button
