@@ -249,11 +249,13 @@ gcloud compute ssh bug-hunter-db --zone=us-central1-a --tunnel-through-iap \
   --command="docker exec -i pg psql -U bughunter -d bughunter -c \"SELECT language, status, COUNT(*) FROM challenges GROUP BY language, status ORDER BY language, status;\""
 ```
 
-Or ask the live site what players actually get:
+Or ask the live site what players actually get (count the challenges, not every
+nested `id` — each challenge carries ~10 of them, for code lines and options):
 
 ```bash
 curl -s -X POST https://bug-hunter-891741363607.us-central1.run.app/api/challenges/session \
-  -H "Content-Type: application/json" -d '{"lang":"python","count":50}' | grep -o '"id"' | wc -l
+  -H "Content-Type: application/json" -d '{"lang":"python","count":50}' \
+  | python3 -c "import sys,json; print(len(json.load(sys.stdin)['challenges']))"
 ```
 
 Other targets: `make drafts` (list), `make show ID=…` (read one),
