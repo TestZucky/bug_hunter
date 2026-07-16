@@ -49,6 +49,11 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      # Fail on high/critical advisories in PRODUCTION dependencies. Dev-only
+      # tooling (test runner, etc.) is excluded — it doesn't ship.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Secret scan
         run: node scripts/scan-secrets.mjs
 
