@@ -31,8 +31,8 @@ start: ## Serve the production build
 	npm run start
 
 # ── Database (Postgres via docker compose) ───────────────────────────
-db-up: ## Start Postgres
-	docker compose up -d db
+db-up: ## Start Postgres and wait until it is ready
+	docker compose up -d --wait db
 
 db-down: ## Stop Postgres
 	docker compose down
@@ -45,8 +45,7 @@ seed: ## Seed challenges from seed/challenges.json (git-ignored)
 
 db-reset: ## Recreate the database from scratch (drops data)
 	docker compose down -v
-	docker compose up -d db
-	@until docker compose exec -T db pg_isready -U postgres -d bughunter >/dev/null 2>&1; do sleep 1; done
+	docker compose up -d --wait db
 	npm run db:migrate
 	npm run db:seed
 
