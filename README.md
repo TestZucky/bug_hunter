@@ -178,8 +178,17 @@ opens a PR; set a hosted `DATABASE_URL` secret to enable DB dedup/writes.
 
 - **Answer safety** — questions/answers are in Postgres only; the client gets a
   stripped projection and every guess is graded server-side.
+- **Abuse protection** — per-IP rate limiting on the API (`session` 30/min,
+  `grade` 300/min → `429` with `Retry-After`). In-memory; back with Redis to scale
+  across instances.
+- **Security headers** — `next.config.mjs` sets CSP, HSTS, `X-Frame-Options: DENY`,
+  `nosniff`, `Referrer-Policy`, `Permissions-Policy`, and drops `X-Powered-By`.
+- **SQL safety** — Drizzle parameterized queries only (no raw SQL); API inputs are
+  Zod-validated.
+- **Dependency audit** — CI fails on high/critical advisories in production deps
+  (`npm audit --omit=dev --audit-level=high`).
 - **Logging + redaction** — `src/lib/logger.ts` scrubs API keys and secret-like
-  env values from all output.
+  env values from all output; API routes return generic errors (no stack traces).
 - **Exception handling** — retry/backoff on external calls, global handlers in
   scripts, Next error/global-error/not-found boundaries + a game `ErrorBoundary`,
   and grade failures never cost the player a life.
@@ -196,6 +205,8 @@ opens a PR; set a hosted `DATABASE_URL` secret to enable DB dedup/writes.
 ## Not in this phase
 
 Real accounts/auth and a networked leaderboard (progress is still local
-`localStorage`). Per-round anti-cheat (server session state) is a follow-up — today
-the grade endpoint is stateless, so answers are protected from the repo and the
-bundle but a scripted client could still enumerate a single challenge's options.
+`localStorage`). Follow-ups for full hardening: **per-round anti-cheat** (server
+session state) — the grade endpoint is stateless, so answers are safe from the repo
+and bundle but a scripted client could still enumerate one challenge's options;
+**nonce-based CSP** (the current CSP allows `'unsafe-inline'` for the app's inline
+styles/scripts); and production **error monitoring** (e.g. Sentry).

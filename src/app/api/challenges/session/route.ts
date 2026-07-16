@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { buildRun } from "@/db/challenges.repo";
 import { toPublicChallenge } from "@/services/challengeService";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { describeError, logger } from "@/lib/logger";
 import type { Language } from "@/types/challenge";
 
@@ -8,6 +9,10 @@ export const dynamic = "force-dynamic";
 
 /** GET /api/challenges/session?lang=javascript&count=20 → answer-stripped queue. */
 export async function GET(req: NextRequest) {
+  // Starting a session is expensive (a DB query per call); throttle it.
+  const limited = enforceRateLimit(req, "session", 30, 60_000);
+  if (limited) return limited;
+
   try {
     const p = req.nextUrl.searchParams;
     const langParam = p.get("lang");
