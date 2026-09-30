@@ -32,7 +32,7 @@
     "ioredis": "^5.11.1",
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
-    "next": "^15.5.20",
+    "next": "^15.5.26",
     "openai": "4.77.0",
     "pg": "^8.22.0",
     "react": "18.3.1",
@@ -69,5 +69,9 @@
     "*.{json,css,md,yml,yaml}": [
       "prettier --write"
     ]
+  },
+  "overrides": {
+    "postcss": "^8.5.23",
+    "sharp": "^0.35.5"
   }
 }
