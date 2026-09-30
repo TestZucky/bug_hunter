@@ -11,8 +11,7 @@
  * pass has approved challenges whose "correct" fix provably breaks the code.
  *
  * Env:
- *   DATABASE_URL  (required) — the bank you are publishing from. For production
- *                 that means an SSH tunnel to the VM; `make drafts` handles it.
+ *   DATABASE_URL  (required) — the bank you are publishing from.
  */
 import {
   deleteDrafts,
@@ -228,9 +227,10 @@ async function review() {
   console.log(`  skipped:   ${skipped.length}  ${skipped.join(", ")}`);
   if (published.length) {
     console.log(
-      C.dim("\nPublished challenges are live immediately — no deploy needed."),
+      C.dim(
+        "\nPublished challenges are live immediately — no deploy needed.\n",
+      ),
     );
-    console.log(C.dim("Worth refreshing your backup:  make backup\n"));
   }
 }
 

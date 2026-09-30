@@ -48,6 +48,7 @@ Every task has a `make` shortcut (each wraps an `npm` script — run `make help`
 | `make db-reset`                               | Drop and rebuild the database from scratch                          |
 | `make check`                                  | Full CI gauntlet locally (lint · format · typecheck · test · build) |
 | `make gen LANG=python N=8 DB=1`               | Generate + verify challenges (`DB=1` also upserts to Postgres)      |
+| `make review`                                 | Step through generated drafts and publish/delete them               |
 | `make lint` / `format` / `typecheck` / `test` | Individual quality gates                                            |
 
 Underlying npm scripts (`npm run …`): `dev`, `build`, `start`, `db:migrate`,
@@ -150,36 +151,6 @@ Tests live next to their source as *.test.ts.
 
 ---
 
-## Deploy ($0 — Cloud Run)
-
-A minimal, near-free setup: Cloud Run (scales to zero) + a **free** managed
-Postgres (Neon or Supabase). No Redis, no VPC — a single instance uses the
-in-memory rate limiter + sessions.
-
-```bash
-# 1. Create a free Postgres (neon.tech or supabase.com) → copy its connection string.
-export DATABASE_URL="postgres://…"        # your PROD database
-
-# 2. Create the schema + seed it (once, from your machine, against prod):
-npm run db:migrate && npm run db:seed
-
-# 3. Deploy (needs `gcloud auth login` + a project set):
-make deploy                                # → prints an https:// URL
-```
-
-`make deploy` runs `gcloud run deploy --source .` with `--min-instances=0
---max-instances=1` (scales to zero, one instance when busy → in-memory state
-works), `--memory=512Mi`, public access, and injects `DATABASE_URL`. HTTPS is
-automatic. Override the service name/region with `SERVICE=… REGION=… make deploy`.
-
-**Free-tier must-dos (all free):** turn on **automated backups** on your Postgres
-(the challenge bank lives only there), use a **strong DB password over TLS**, and
-set a **GCP budget alert**. Optional upgrades later: Secret Manager instead of an
-env var (`--set-secrets`), and Upstash Redis (`REDIS_URL`) if you raise
-`--max-instances` above 1.
-
----
-
 ## Content pipeline
 
 ```mermaid
@@ -210,44 +181,22 @@ This is deliberate. The adversarial verify pass is useful but fallible — it ha
 approved challenges whose "correct" fix provably breaks the code. A human reads
 the draft before players do.
 
-### Adding challenges to production
+### Reviewing and publishing
 
-Needs `OPENAI_API_KEY` in `.env` (generation calls OpenAI and costs money) and
-`gcloud` logged in. The prod DB has no public address, so everything below goes
-through an SSH tunnel.
+Needs `OPENAI_API_KEY` in `.env` (generation calls OpenAI and costs money). Every
+target below works against whatever database `DATABASE_URL` points at.
 
 ```bash
-make tunnel                       # terminal 1 — leave running (silent = working)
-
-make gen-prod LANG=python N=8     # terminal 2 — generate; lands as DRAFTS
-make gen-prod LANG=javascript N=8
+make gen LANG=python N=8 DB=1     # generate; approved ones land as DRAFTS
 make review                       # step through each draft: [p]ublish [d]elete [s]kip
-make backup                       # dump prod to ~/bughunter-backup-<date>.sql
 ```
 
-Only `gen-prod` spends money. `review` just reads what is already in the DB.
 Expect roughly 1–3 of 8 candidates to survive the verify pass.
 
 `make review` prints each draft with the bug line marked `▸` and the answer key
 beside it, then waits for one keypress. `p` publishes it — live immediately, no
 deploy. Read it first: check the `▸` line is really the bug, the `✓` fix really
 works, and every `✗` option is actually wrong.
-
-Count what is in the bank, before and after:
-
-```bash
-gcloud compute ssh bug-hunter-db --zone=us-central1-a --tunnel-through-iap \
-  --command="docker exec -i pg psql -U bughunter -d bughunter -c \"SELECT language, status, COUNT(*) FROM challenges GROUP BY language, status ORDER BY language, status;\""
-```
-
-Or ask the live site what players actually get (count the challenges, not every
-nested `id` — each challenge carries ~10 of them, for code lines and options):
-
-```bash
-curl -s -X POST https://bug-hunter-891741363607.us-central1.run.app/api/challenges/session \
-  -H "Content-Type: application/json" -d '{"lang":"python","count":50}' \
-  | python3 -c "import sys,json; print(len(json.load(sys.stdin)['challenges']))"
-```
 
 Other targets: `make drafts` (list), `make show ID=…` (read one),
 `make publish ID=…` / `make unpublish ID=…` (promote or pull back).
