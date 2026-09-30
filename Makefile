@@ -7,7 +7,7 @@ SHELL := /bin/bash
 .PHONY: help install setup dev build start \
         db-up db-down migrate seed db-reset \
         lint format format-check typecheck test check \
-        gen tunnel gen-prod review drafts show publish unpublish backup clean deploy
+        gen review drafts show publish unpublish clean
 
 help: ## List available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -72,88 +72,27 @@ check: lint format-check typecheck test build ## Run the full CI gauntlet locall
 gen: ## Generate + verify challenges (LANG=javascript N=8 [DB=1])
 	npm run gen:challenges -- $(or $(LANG),javascript) $(or $(N),8) $(if $(DB),--write-db,)
 
-# ── Content pipeline (production, via SSH tunnel to the VM) ──────────
-# The prod DB has no public address, so every target below needs `make tunnel`
-# running in another terminal. Generated challenges land as DRAFTS: they are
-# invisible to players until `make publish` promotes them. Review first — the
-# verify pass has approved challenges whose "correct" fix broke the code.
-VM          ?= bug-hunter-db
-ZONE        ?= us-central1-a
-TUNNEL_PORT ?= 55432
+# ── Challenge review (whatever DB DATABASE_URL in .env points at) ────
+# Generated challenges land as DRAFTS: they are invisible to players until
+# `make publish` promotes them. Review first — the verify pass has approved
+# challenges whose "correct" fix broke the code.
+review: ## Step through every draft and publish/delete by keypress
+	@npm run --silent challenges -- review
 
-# Reads the prod DATABASE_URL off the Cloud Run service and rewrites its host to
-# the local tunnel. Kept in one place and never echoed — it carries the password.
-GET_DB_URL = gcloud run services describe $(or $(SERVICE),bug-hunter) --region $(or $(REGION),us-central1) --format=json \
-	| node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const e=JSON.parse(s).spec.template.spec.containers[0].env||[];const v=(e.find(x=>x.name==="DATABASE_URL")||{}).value||"";if(!v){console.error("No DATABASE_URL on the Cloud Run service");process.exit(1)}process.stdout.write(v.replace(/@[^\/]+\//,"@localhost:$(TUNNEL_PORT)/"))})'
+drafts: ## List challenges awaiting review
+	@npm run --silent challenges -- drafts
 
-# Fails early with a useful message instead of silently hitting the local DB.
-define require_tunnel
-@nc -z localhost $(TUNNEL_PORT) >/dev/null 2>&1 || { \
-	echo "No tunnel on localhost:$(TUNNEL_PORT). Run 'make tunnel' in another terminal."; exit 1; }
-endef
-
-# The VM has no public IP, so SSH goes through IAP TCP forwarding (allowed by
-# the `allow-iap-ssh` rule, source 35.235.240.0/20 only). Postgres is reachable
-# from inside the VPC and from nowhere else.
-tunnel: ## Open an SSH tunnel to the prod DB (leave running; Ctrl-C to stop)
-	@echo "Tunnel: localhost:$(TUNNEL_PORT) -> $(VM):5432 via IAP. Leave this running; Ctrl-C to stop."
-	gcloud compute ssh $(VM) --zone=$(ZONE) --tunnel-through-iap -- -L $(TUNNEL_PORT):localhost:5432 -N
-
-gen-prod: ## Generate challenges as DRAFTS in prod (LANG=python N=8; needs `make tunnel`)
-	$(require_tunnel)
-	@DATABASE_URL="$$($(GET_DB_URL))" npm run gen:challenges -- $(or $(LANG),python) $(or $(N),8) --write-db
-
-review: ## Step through every draft and publish/delete by keypress (needs `make tunnel`)
-	$(require_tunnel)
-	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- review
-
-drafts: ## List prod challenges awaiting review (needs `make tunnel`)
-	$(require_tunnel)
-	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- drafts
-
-show: ## Print one challenge in full, answers included (ID=some-id; needs `make tunnel`)
+show: ## Print one challenge in full, answers included (ID=some-id)
 	@test -n "$(ID)" || { echo "Usage: make show ID=<challenge-id>"; exit 1; }
-	$(require_tunnel)
-	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- show $(ID)
+	@npm run --silent challenges -- show $(ID)
 
-publish: ## Publish a reviewed draft — goes live instantly (ID=some-id; needs `make tunnel`)
+publish: ## Publish a reviewed draft — goes live instantly (ID=some-id)
 	@test -n "$(ID)" || { echo "Usage: make publish ID=<challenge-id>"; exit 1; }
-	$(require_tunnel)
-	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- publish $(ID)
+	@npm run --silent challenges -- publish $(ID)
 
-unpublish: ## Pull a challenge back out of the game (ID=some-id; needs `make tunnel`)
+unpublish: ## Pull a challenge back out of the game (ID=some-id)
 	@test -n "$(ID)" || { echo "Usage: make unpublish ID=<challenge-id>"; exit 1; }
-	$(require_tunnel)
-	@DATABASE_URL="$$($(GET_DB_URL))" npm run --silent challenges -- unpublish $(ID)
-
-# Goes to $HOME, never into the repo: the dump holds every answer and this repo
-# is public. Needs no tunnel — pg_dump runs on the VM, over IAP.
-BACKUP_DIR ?= $(HOME)
-
-backup: ## Dump the prod DB to $(BACKUP_DIR)/bughunter-backup-<date>.sql
-	@out="$(BACKUP_DIR)/bughunter-backup-$$(date +%F).sql"; \
-	gcloud compute ssh $(VM) --zone=$(ZONE) --tunnel-through-iap \
-	  --command="docker exec -i pg pg_dump -U bughunter -d bughunter" > "$$out" 2>/dev/null; \
-	if ! grep -q "PostgreSQL database dump complete" "$$out" 2>/dev/null; then \
-	  echo "Backup FAILED or truncated — not keeping $$out"; rm -f "$$out"; exit 1; \
-	fi; \
-	echo "Wrote $$out ($$(wc -c < "$$out" | tr -d ' ') bytes, $$(grep -c "^" "$$out") lines)"; \
-	echo "Restore with:  cat $$out | gcloud compute ssh $(VM) --zone=$(ZONE) --tunnel-through-iap --command=\"docker exec -i pg psql -U bughunter -d bughunter\""
+	@npm run --silent challenges -- unpublish $(ID)
 
 clean: ## Remove build artifacts
 	rm -rf .next
-
-# ── Deploy (Cloud Run, $0-tier config) ───────────────────────────────
-# Needs: `gcloud auth login` + a project set, and DATABASE_URL exported to your
-# production Postgres (e.g. a free Neon/Supabase). Optional: SERVICE, REGION.
-# Runs one always-available-when-busy instance that scales to zero when idle, so
-# the in-memory rate limiter + sessions work without Redis.
-deploy: ## Deploy to Cloud Run (export DATABASE_URL first)
-	@test -n "$$DATABASE_URL" || { echo "Set DATABASE_URL to your prod Postgres first: export DATABASE_URL=..."; exit 1; }
-	gcloud run deploy $(or $(SERVICE),bug-hunter) \
-		--source . \
-		--region $(or $(REGION),us-central1) \
-		--allow-unauthenticated \
-		--min-instances=0 --max-instances=1 --concurrency=80 \
-		--memory=512Mi --cpu=1 \
-		--set-env-vars "DATABASE_URL=$$DATABASE_URL"
